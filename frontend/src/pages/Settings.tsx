@@ -144,6 +144,30 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
 
       <PhoneSection status={status} onChange={onChange} />
 
+      <Section title="Model router">
+        <p className="text-sm text-dim mb-4">Send each message to the best model. Start a message with <b>fast:</b>, <b>think:</b>, <b>vision:</b> or <b>local:</b> to choose, or let JARVIS pick: short questions go to <b>fast</b>, long or analytical ones to <b>think</b>. Everything else uses your default Hermes model. Each provider needs its key in Hermes once (in Terminal: <code className="text-arc">hermes auth add &lt;provider&gt;</code>). For Ollama on this Mac use provider <code className="text-arc">custom</code> and URL <code className="text-arc">http://localhost:11434/v1</code>.</p>
+        <div className="flex flex-wrap gap-6 mb-4">
+          <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#3CE7FF] size-4" checked={s.router.enabled} onChange={e => setS({ ...s, router: { ...s.router, enabled: e.target.checked } })} /> Use the router</label>
+          <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#3CE7FF] size-4" checked={s.router.auto} onChange={e => setS({ ...s, router: { ...s.router, auto: e.target.checked } })} /> Pick automatically when there's no prefix</label>
+        </div>
+        <div className="space-y-3">
+          {([['fast', 'Quick answers', 'e.g. anthropic · claude-haiku-5-5, or groq · llama-3.3-70b-versatile'], ['think', 'Deep reasoning', 'e.g. anthropic · claude-opus-5-5'],
+            ['vision', 'Images', 'e.g. gemini · gemini-2.5-pro'], ['local', 'Private, on this Mac', 'e.g. custom · llama3.2 · http://localhost:11434/v1']] as const).map(([alias, label, eg]) => {
+            const r = s.router.routes[alias] || {}
+            const setR = (p: Partial<typeof r>) => setS({ ...s, router: { ...s.router, routes: { ...s.router.routes, [alias]: { ...r, ...p } } } })
+            return (
+              <div key={alias} className="grid md:grid-cols-[110px_1fr_1fr_1fr] gap-2 items-center">
+                <span className="text-sm"><b className="font-display text-arc">{alias}:</b><span className="block text-[12px] text-faint">{label}</span></span>
+                <input className={inputCls} placeholder="provider" aria-label={`${alias} provider`} value={r.provider || ''} onChange={e => setR({ provider: e.target.value.trim() })} />
+                <input className={inputCls} placeholder="model" aria-label={`${alias} model`} title={eg} value={r.model || ''} onChange={e => setR({ model: e.target.value.trim() })} />
+                <input className={inputCls} placeholder="base URL (optional)" aria-label={`${alias} base URL`} value={r.base_url || ''} onChange={e => setR({ base_url: e.target.value.trim() })} />
+              </div>
+            )
+          })}
+        </div>
+        <div className="mt-4"><Button tone="primary" onClick={() => save({ router: s.router }, 'Router saved — restarting Hermes to apply it')}>Save</Button></div>
+      </Section>
+
       <GoogleSection />
       <ReceptionistSection r={s.receptionist} phoneOn={!!status?.phone.configured} googleOn={!!status?.google?.connected}
         onSave={r => save({ receptionist: r }, 'Receptionist settings saved')} />

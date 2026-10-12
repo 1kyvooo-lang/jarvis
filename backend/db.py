@@ -90,6 +90,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "receptionist": {"answer_others": True, "business_name": "", "about": "", "booking": True, "appointment_minutes": 30,
                      "inbox_assistant": False, "inbox_minutes": 10, "allow_archive": False, "approve_by_text": True,
                      "labels": ["Needs reply", "Appointments", "Important", "Receipts", "Newsletters", "Other"]},
+    "router": {"enabled": False, "auto": True, "routes": {}},
     "wake": {"enabled": True, "threshold": 0.5, "greeting": "Yes? What do you need?", "open_at_login": True},
     "emergency_stop": False,
 }

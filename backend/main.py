@@ -359,7 +359,7 @@ async def shutdown():
 
 # ---------------------------------------------------------------- settings / permissions / safety
 
-ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake", "receptionist"}
+ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake", "receptionist", "router"}
 
 
 @app.get("/api/settings")
@@ -373,6 +373,8 @@ async def put_settings(body: dict):
         if k not in ALLOWED_SETTINGS:
             raise HTTPException(400, f"Unknown or protected setting: {k}")
         db.set_setting(k, v)
+    if "router" in body:   # routes live in Hermes's config, so restart it to apply them
+        asyncio.create_task(services.restart_gateway())
     if "browser" in body:  # read by the jarvis MCP server when it (re)starts Playwright
         (DATA_DIR / "browser_settings.json").write_text(json.dumps(db.get_settings()["browser"]))
     return {"settings": db.get_settings()}
@@ -820,8 +822,14 @@ async def public_run(body: InternalCall):
 
 @app.post("/api/internal/run", dependencies=[Depends(internal_auth)])
 async def internal_run(body: InternalCall):
-    return await actions.run_tool(body.tool, body.args, conversation_id=chat.ACTIVE["cid"], source="hermes",
-                                  wait=APPROVAL_WAIT)
+    res = await actions.run_tool(body.tool, body.args, conversation_id=chat.ACTIVE["cid"], source="hermes",
+                                 wait=APPROVAL_WAIT)
+    if res.get("status") == "ok":   # privacy guard: keys, passwords and one-time codes never reach the model
+        from . import redact
+        res["output"], n = redact.redact_obj(res.get("output"))
+        if n:
+            db.log_activity(f"Privacy guard redacted {n} secret(s) from {body.tool} output", "info", tool="privacy")
+    return res
 
 
 @app.post("/api/internal/authorize", dependencies=[Depends(internal_auth)])

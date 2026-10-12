@@ -93,6 +93,31 @@ def ensure_config(home: Path | None = None) -> dict:
         data["mcp_servers"] = servers
         changed.append("mcp_servers.jarvis")
 
+    from . import router
+    routes = router.configured_routes()
+    gw = data.get("gateway") or {}
+    plats = gw.get("platforms") or {}
+    api = plats.get("api_server") or {}
+    cur_routes = dict(api.get("model_routes") or {})
+    if {k: dict(v) for k, v in cur_routes.items()} != routes:
+        if routes:
+            api["model_routes"] = routes
+        else:
+            api.pop("model_routes", None)
+        if api:
+            plats["api_server"] = api
+        elif "api_server" in plats:
+            plats.pop("api_server")
+        if plats:
+            gw["platforms"] = plats
+        elif "platforms" in gw:
+            gw.pop("platforms")
+        if gw:
+            data["gateway"] = gw
+        elif "gateway" in data:
+            data.pop("gateway")
+        changed.append("gateway.platforms.api_server.model_routes")
+
     pts = data.get("platform_toolsets") or {}
     if list(pts.get("api_server") or []) != API_SERVER_TOOLSETS:
         pts["api_server"] = list(API_SERVER_TOOLSETS)
@@ -249,9 +274,9 @@ class HermesClient:
             await self.health()
         return self._model or "hermes-agent"
 
-    async def stream(self, *, conversation: str, text: str, instructions: str) -> AsyncIterator[dict]:
+    async def stream(self, *, conversation: str, text: str, instructions: str, route: str | None = None) -> AsyncIterator[dict]:
         """Yield normalized events: text / tool_start / tool_result / done / error."""
-        body = {"model": await self.model(), "input": text, "conversation": conversation,
+        body = {"model": route or await self.model(), "input": text, "conversation": conversation,
                 "instructions": instructions, "stream": True, "store": True}
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=None)) as c:

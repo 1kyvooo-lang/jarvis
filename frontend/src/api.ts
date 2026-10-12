@@ -38,6 +38,7 @@ export type Settings = {
   hermes: { api_key: string; binary: string }
   browser: { headless: boolean }
   receptionist: Receptionist
+  router: { enabled: boolean; auto: boolean; routes: Record<string, { model?: string; provider?: string; base_url?: string }> }
   wake: { enabled: boolean; threshold: number; greeting: string; open_at_login: boolean }
 }
 export type BrowserPolicy = { ask_outside_approved_domains: boolean; always_ask: string[]; risky_words: string[] }

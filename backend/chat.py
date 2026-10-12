@@ -128,8 +128,16 @@ async def run_chat(cid: str | None, user_text: str, brain: Brain, channel: str =
         return _save(cid, "assistant", content or [{"type": "text", "text": ""}], text)
 
     try:
-        async for ev in brain.stream(conversation=f"jarvis-{cid}", text=text_for_brain,
-                                     instructions=instructions(settings, user_text, channel)):
+        from . import redact, router
+        route, routed_text = router.pick(text_for_brain)
+        safe_text, found = redact.redact(routed_text)
+        if found:
+            db.log_activity(f"Privacy guard redacted {found} secret(s) before sending to the AI", "info", tool="privacy")
+        kw = {"route": route} if route else {}
+        if route:
+            yield {"type": "route", "alias": route}
+        async for ev in brain.stream(conversation=f"jarvis-{cid}", text=safe_text,
+                                     instructions=instructions(settings, user_text, channel), **kw):
             if cancel.is_set():
                 break
             if ev["type"] == "text":
