@@ -43,6 +43,8 @@ export default function App() {
     return () => removeEventListener('hashchange', on)
   }, [])
   const go = (p: PageId) => { location.hash = p; setPage(p) }
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('jarvis.navCollapsed') === '1' } catch { return false } })
+  const toggleNav = () => setCollapsed(c => { try { localStorage.setItem('jarvis.navCollapsed', c ? '0' : '1') } catch { /* ignore */ } return !c })
 
   // Lenis smooth scrolling for the page area (off for reduced motion and the chat, which scrolls itself).
   const scroller = useRef<HTMLDivElement>(null)
@@ -75,29 +77,34 @@ export default function App() {
   return (
     <JarvisProvider status={s} onWake={() => go('overview')}>
     <div className="field h-full flex">
-      <nav className="w-[220px] shrink-0 border-r border-seam/70 flex flex-col py-5 px-3 max-md:w-[64px]" aria-label="Main">
-        <div className="flex items-center gap-2.5 px-2 mb-8">
-          <img src="/core.svg" alt="" className="size-8" />
-          <span className="font-display text-lg font-semibold tracking-[0.18em] max-md:hidden">JARVIS</span>
+      <nav className={`${collapsed ? 'w-[64px] nav-collapsed' : 'w-[220px]'} shrink-0 border-r border-seam/70 flex flex-col py-5 px-3 max-md:w-[64px] transition-[width] duration-300 overflow-hidden`} aria-label="Main">
+        <div className={`flex items-center gap-2.5 px-2 mb-8 ${collapsed ? 'flex-col' : ''}`}>
+          <img src="/core.svg" alt="" className="size-8 shrink-0" />
+          <span className="font-display text-lg font-semibold tracking-[0.18em] max-md:hidden nav-label">JARVIS</span>
+          <button onClick={toggleNav} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`${collapsed ? 'mt-3' : 'ml-auto'} size-8 grid place-items-center rounded-md text-dim hover:text-ink hover:bg-graphite max-md:hidden`}>
+            <svg viewBox="0 0 24 24" className={`size-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 6l-6 6 6 6" /></svg>
+          </button>
         </div>
         <ul className="space-y-1 flex-1">
           {NAV.map(n => (
             <li key={n.id}>
-              <button onClick={() => go(n.id)} aria-current={page === n.id ? 'page' : undefined}
+              <button onClick={() => go(n.id)} aria-current={page === n.id ? 'page' : undefined} title={collapsed ? n.label : undefined}
                 className={`w-full flex items-center gap-3 px-3 h-10 rounded-lg text-sm transition-colors ${page === n.id
                   ? 'bg-plate text-ink shadow-[inset_2px_0_0_#3CE7FF]' : 'text-dim hover:text-ink hover:bg-graphite'}`}>
                 <Icon name={n.icon} />
-                <span className="max-md:hidden">{n.label}</span>
+                <span className="max-md:hidden nav-label whitespace-nowrap">{n.label}</span>
                 {n.id === 'settings' && s?.update?.available &&
-                  <span className="ml-auto size-2 rounded-full bg-arc max-md:hidden" title="Update available" />}
+                  <span className="ml-auto size-2 rounded-full bg-arc max-md:hidden nav-label" title="Update available" />}
                 {n.id === 'tasks' && s && s.counts.open_tasks > 0 &&
-                  <span className="ml-auto text-[12px] text-faint max-md:hidden">{s.counts.open_tasks}</span>}
+                  <span className="ml-auto text-[12px] text-faint max-md:hidden nav-label">{s.counts.open_tasks}</span>}
               </button>
             </li>
           ))}
         </ul>
         {s && (
-          <div className="px-3 space-y-2 text-[13px] text-dim mb-4 max-md:hidden">
+          <div className="px-3 space-y-2 text-[13px] text-dim mb-4 max-md:hidden nav-label">
             <div className="flex items-center gap-2"><Dot tone={s.brain.ready ? 'ok' : s.brain.state === 'starting' ? 'warn' : 'bad'} /> Hermes {s.brain.ready ? 'online' : s.brain.state === 'starting' ? 'starting' : 'offline'}</div>
             <div className="flex items-center gap-2"><Dot tone={s.voice.elevenlabs ? 'ok' : 'off'} /> Voice {s.voice.elevenlabs ? 'ElevenLabs' : 'basic'}</div>
             <div className="flex items-center gap-2"><Dot tone={!s.agent.online ? 'bad' : s.agent.stopped ? 'warn' : 'ok'} /> Mac agent {s.agent.online ? (s.agent.stopped ? 'halted' : 'online') : 'offline'}</div>
@@ -146,7 +153,7 @@ function EmergencyButton({ stopped, onChange }: { stopped: boolean; onChange: ()
         ? 'border-ok/50 text-ok hover:bg-ok/10' : 'border-fault/50 text-fault hover:bg-fault/10'}`}
       title={stopped ? 'Allow actions again' : 'Immediately stop all actions and automations'}>
       <Icon name="power" />
-      <span className="max-md:hidden">{stopped ? 'Resume actions' : 'Emergency stop'}</span>
+      <span className="max-md:hidden nav-label whitespace-nowrap">{stopped ? 'Resume actions' : 'Emergency stop'}</span>
     </button>
   )
 }

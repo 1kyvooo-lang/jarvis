@@ -115,3 +115,6 @@ body {
 @keyframes talkglow { 50% { box-shadow: 0 0 46px -4px rgba(60, 231, 255, .95), inset 0 0 22px rgba(60, 231, 255, .3); } }
 @keyframes twinkle { 50% { opacity: .35; } }
 .constellation .twinkle { animation: twinkle 3s ease-in-out infinite; }
+
+/* collapsed sidebar: icons only */
+.nav-collapsed .nav-label { display: none; }
