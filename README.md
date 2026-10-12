@@ -42,6 +42,14 @@ After that, open **JARVIS** from Applications, the Dock or Spotlight like any ot
 - **Stop:** the stop button ends the current reply. **Emergency stop**, in the left rail, halts all actions and automations until you resume.
 - **Quit:** Settings → Startup and quitting → Quit JARVIS.
 
+## Command Center
+
+The home screen. The holographic core reacts live: it swells with your voice while listening, pulses with his while speaking, and spins up while thinking or acting. Around it you get live system status, an activity feed, your task timeline, CPU/RAM/disk, memory stats and quick commands. **Talk to JARVIS** at the bottom starts a hands-free conversation. Collapse the left sidebar with the arrow next to the logo.
+
+## “Hey JARVIS”
+
+Leave the JARVIS window open (it can sit in the background, and it opens itself at login). Say **“Hey JARVIS”**: he answers “Yes? What do you need?” and you talk hands-free. Wake-word detection runs locally on your Mac (openWakeWord). No audio is recorded or sent anywhere until he's awake. Turn it off or tune its sensitivity in Settings → “Hey JARVIS”.
+
 ## Call mode (talk like a phone call, in the app)
 
 On the Assistant page click **Call**. Just talk: JARVIS hears when you stop, answers out loud, and listens again.
@@ -62,12 +70,43 @@ Talk over him to interrupt. Say "goodbye" or click **End call** to stop. The con
 - Every request from Twilio is checked against your Auth Token signature. Only the `/twilio` routes are reachable from the internet,
   and they run on a separate port. The dashboard, Hermes and the Mac agent stay local only.
 
+## Email, calendar and appointments (Google)
+
+Settings → **Google**: follow the 5 steps to create your own Google OAuth client, then click **Connect Google**.
+
+- “What's in my inbox?”, “Archive all the newsletters”, “Reply to Anna and say Tuesday works”: he reads, labels, archives and drafts. **Sending always waits for your OK.** He can't delete mail.
+- “What's on tomorrow?”, “Book a dentist slot Friday at 3”: he reads your calendar and books. Inviting other people asks first.
+- **Inbox assistant** (Settings → Receptionist & inbox assistant): every few minutes it sorts new mail into `JARVIS/…` labels and drafts replies to real people. The drafts wait for you.
+
+## Receptionist: he answers other people
+
+When anyone else calls or texts your Twilio number, a separate, locked-down assistant answers. It's a second Hermes profile with no memory, no web, and no access to your email, files or chats; its only tools are *check availability*, *book appointment*, and *take message*.
+
+- On calls it books appointments into free slots inside your working hours and texts you each booking and message.
+- Replies to texts from other people are drafted for you, and only go out once you approve.
+- **Approve from your phone:** JARVIS texts you “needs your OK (#12)”. Reply **YES 12** or **NO 12**.
+
+Tell it what it may share (services, prices, hours) in Settings → Receptionist.
+
+## Mac, music and notes
+
+- “Open Spotify”, “Pause the music”, “Next song”, “What's playing?”, “Play Daft Punk on Spotify”, “Find lo-fi on YouTube”, “Open Mail”, “Volume 30”. Apps on your approved list now open without asking.
+- **Obsidian:** set your vault folder in Settings → Obsidian. Then “Search my notes for Helixa”, “Add this to my Ideas note”, “Make a note called Launch plan”. He never deletes notes. Replacing a whole note asks first and keeps a backup.
+
+## Model router and privacy guard
+
+- Settings → **Model router**: add a *fast*, *think*, *vision* and/or *local* (Ollama) model. Start a message with `fast:` or `think:`, or let JARVIS pick: short questions go to fast, analysis goes to think. It uses Hermes's own `model_routes`, so tools and memory work the same on every model.
+- **Privacy guard** (always on): API keys, tokens, passwords, card numbers and one-time codes are replaced with `[REDACTED …]` before anything reaches a cloud model, including email contents. Each redaction is logged in Activity.
+
 ## What JARVIS can do (and what asks first)
 
 | Area | Without asking | Asks you first |
 |---|---|---|
 | Browser (Playwright MCP) | Open approved sites, read pages, screenshots, ordinary clicks and typing | Unapproved sites; clicks on buttons like buy, pay, send, submit, delete, confirm; filling forms; uploads; running page scripts; accepting dialogs; typing into password or card fields |
-| Mac | Time, system status and info, search file names in approved folders, notifications, open approved websites | Open apps (approved list only), read a file (approved folders only) |
+| Mac | Time, system status and info, search file names in approved folders, notifications, open approved websites and apps, music, YouTube, volume | Read a file (approved folders only) |
+| Email & calendar | Search, read, label, archive, list events, find free slots, book your own events | Send email, invite other people |
+| Messages | Text or call you | Text anyone else |
+| Obsidian | Search, read, create notes, append to notes | Replace a note |
 | Tasks and memory | To-dos, save and search your notes, propose automations | Proposed automations only run after you approve them on the Tasks page |
 
 You can change all of this in **Settings**: approved apps, sites and folders, which Mac tools ask first, which browser actions always ask, and the click words that trigger a check.
@@ -116,8 +155,8 @@ JARVIS.app ─ opens ─▶ Dashboard (127.0.0.1:8000) ◀── voice ──▶
 
 ## Not built yet
 
-- A hands-free "Jarvis" wake word. Push-to-talk works today.
-- Phone calls, calendar and email, smart home, and market data. These have reserved interfaces and show as "awaiting configuration". Hermes can also connect messaging apps itself (`hermes gateway setup`).
+- Shell/terminal commands are deliberately off.
+- Smart home and market data have reserved interfaces only. Hermes can also connect messaging apps itself (`hermes gateway setup`).
 
 ## For developers
 
@@ -133,12 +172,15 @@ JARVIS.app ─ opens ─▶ Dashboard (127.0.0.1:8000) ◀── voice ──▶
 agent/        Mac agent: tool registry, allowlists, path safety, auth, idempotency, kill switch
 backend/      main.py (API), chat.py (Hermes turns), hermes.py (config, client, events),
               actions.py (approval gate), browser_policy.py, voice.py (ElevenLabs),
-              services.py (supervises Hermes + agent), memory.py, scheduler.py, db.py
+              services.py (supervises Hermes + agent), memory.py, scheduler.py, db.py,
+              google.py (Gmail/Calendar), public.py (receptionist), wake.py, router.py, redact.py, updater.py
 jarvis_mcp/   MCP server Hermes connects to (Mac tools + gated Playwright MCP proxy)
-frontend/     React + TypeScript + Tailwind dashboard
+frontend/     React + TypeScript + Tailwind dashboard (GSAP, Lenis, React Bits components)
 mcp-runtime/  pinned @playwright/mcp
 macos/        app icon
 scripts/      install_mac.sh · build_app.sh · launchagent.sh · hermes_extras.sh · dev/setup/stop
 ```
 
 To add a Mac tool, add a decorated function in `agent/tools.py`. It shows up in Hermes, the dashboard and Settings automatically. Set `sensitive=True` to make it always ask first.
+
+React Bits components in frontend/src/components/reactbits are © David Haz, MIT + Commons Clause (see LICENSE.md there).
