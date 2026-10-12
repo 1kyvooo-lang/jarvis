@@ -77,6 +77,9 @@ def instructions(settings: dict, user_text: str, channel: str = "app") -> str:
         "need them. When the user asks you to remember something, use the jarvis save_memory tool so it shows in their dashboard.",
         "Replies are often spoken aloud: keep them short and direct unless asked for detail. Use Markdown sparingly.",
         "Never ask for or store passwords, API keys or 2FA codes.",
+        "Other jarvis tools when available: Gmail (email_*), Google Calendar (calendar_*), texting other people "
+        "(text_message), music and YouTube (media_control, spotify_search, youtube_search), and the user's Obsidian "
+        "vault (obsidian_*) for their notes. Sending anything to another person waits for the user's approval.",
     ]
     if channel == "phone":
         lines.append("You are on a live PHONE CALL with the user. Answer in one to three short spoken sentences, "

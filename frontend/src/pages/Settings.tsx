@@ -182,6 +182,13 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
         </div>
       </Section>
 
+      <Section title="Obsidian" foot={<Button tone="primary" onClick={savePerms}>Save</Button>}>
+        <p className="text-sm text-dim mb-4">Point JARVIS at your Obsidian vault and he can search and read your notes, create new ones and add to existing ones (“Hey JARVIS, add this to my Ideas note”). Replacing a whole note always asks you first and keeps a backup.</p>
+        <Field label="Vault folder" hint="The folder that contains the .obsidian folder, e.g. ~/Documents/Obsidian Vault">
+          <input className={inputCls} placeholder="~/Documents/Obsidian Vault" value={perms.obsidian_vault || ''} onChange={e => setPerms({ ...perms, obsidian_vault: e.target.value })} />
+        </Field>
+      </Section>
+
       <Section title="Apps, sites and folders" foot={<Button tone="primary" onClick={savePerms}>Save permissions</Button>}>
         <p className="text-sm text-dim mb-4">The Mac agent re-reads these on every request and refuses anything outside them, whatever the AI asks for.</p>
         <div className="grid md:grid-cols-3 gap-4 mb-6">

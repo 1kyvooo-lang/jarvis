@@ -86,6 +86,7 @@ def load_permissions() -> dict:
         data.setdefault("approved_directories", [])
         data.setdefault("approval_required", [])
         data.setdefault("disabled_tools", [])
+        data.setdefault("obsidian_vault", "")
         b = data.setdefault("browser", {})
         b.setdefault("ask_outside_approved_domains", True)
         b.setdefault("always_ask", ["browser_fill_form", "browser_file_upload", "browser_drop", "browser_evaluate",

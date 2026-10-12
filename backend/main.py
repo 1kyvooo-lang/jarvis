@@ -385,6 +385,7 @@ class PermissionsIn(BaseModel):
     approval_required: list[str]
     disabled_tools: list[str]
     browser: dict = Field(default_factory=dict)
+    obsidian_vault: str = ""
 
 
 @app.get("/api/permissions")
@@ -401,6 +402,10 @@ async def put_permissions(body: PermissionsIn):
     for dom in data["approved_domains"]:
         if "/" in dom or " " in dom or not dom.strip():
             raise HTTPException(400, f"'{dom}' should be a bare domain like example.com")
+    if data["obsidian_vault"].strip():
+        v = Path(os.path.expanduser(data["obsidian_vault"].strip()))
+        if not (v / ".obsidian").is_dir():
+            raise HTTPException(400, f"'{data['obsidian_vault']}' isn't an Obsidian vault (no .obsidian folder inside).")
     data["migrations"] = load_permissions().get("migrations", [])  # keep one-time upgrades applied
     save_permissions(data)
     db.log_activity("Permissions updated", "info", tool="settings", source="user")
