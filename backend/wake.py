@@ -11,8 +11,6 @@ import logging
 import time
 from pathlib import Path
 
-import numpy as np
-
 log = logging.getLogger("jarvis.wake")
 FRAME = 1280          # 80 ms at 16 kHz, what openWakeWord expects
 COOLDOWN_S = 2.5
@@ -34,7 +32,9 @@ def model_path() -> Path | None:
 
 class Detector:
     def __init__(self, threshold: float = 0.5):
+        import numpy as np
         from openwakeword.model import Model
+        self.np = np
         path = model_path()
         if not path:
             raise RuntimeError(STATE["error"])
@@ -46,6 +46,7 @@ class Detector:
 
     def feed(self, pcm16: bytes) -> float | None:
         """Feed raw little-endian int16 audio; returns the score when the wake word fires."""
+        np = self.np
         self.buf = np.concatenate([self.buf, np.frombuffer(pcm16, dtype="<i2")])
         fired = None
         while len(self.buf) >= FRAME:
@@ -87,6 +88,6 @@ async def serve(ws, threshold: float) -> None:
                     await ws.send_json({"type": "wake", "score": round(score, 3)})
             elif msg.get("text") == "reset":
                 det.model.reset()
-                det.buf = np.zeros(0, dtype=np.int16)
+                det.buf = det.np.zeros(0, dtype=det.np.int16)
     finally:
         STATE["clients"] -= 1
