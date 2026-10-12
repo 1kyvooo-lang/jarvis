@@ -28,8 +28,14 @@ from shared.settings import (BACKEND_HOST, BACKEND_PORT, DATA_DIR, LOG_DIR, ROOT
 
 from . import (actions, agent_client, browser_policy, chat, db, hermes, integrations, memory, phone, scheduler,
                secrets_store, services, updater, voice, wake)
+from . import google, public
 
 log = logging.getLogger("jarvis.backend")
+
+
+def html_escape(v: str) -> str:
+    import html as _h
+    return _h.escape(v)
 brain_override = None  # tests inject a fake brain here
 
 
@@ -48,10 +54,13 @@ async def lifespan(app: FastAPI):
     services.start()
     task = asyncio.create_task(scheduler.loop())
     upd = asyncio.create_task(_update_loop())
+    inbox = asyncio.create_task(public.inbox_loop()) if not os.environ.get("JARVIS_NO_SUPERVISOR") else None
     asyncio.create_task(_open_window_for_wake())
     yield
     task.cancel()
     upd.cancel()
+    if inbox:
+        inbox.cancel()
     services.stop_all()
 
 
@@ -103,6 +112,7 @@ async def status():
         "browser": {"available": (ROOT / "mcp-runtime" / "node_modules" / "@playwright" / "mcp").exists()},
         "phone": phone.status(),
         "update": {"available": updater.info()["available"]},
+        "google": google.status(),
         "emergency_stop": settings.get("emergency_stop", False),
         "user_name": settings.get("user_name", ""),
         "platform": sys.platform,
@@ -196,6 +206,88 @@ async def wake_ws(ws: WebSocket):
         await wake.serve(ws, float(db.get_settings()["wake"].get("threshold", 0.5)))
     except WebSocketDisconnect:
         pass
+
+
+# ---------------------------------------------------------------- Google (Gmail + Calendar)
+
+class GoogleIn(BaseModel):
+    client_id: str | None = None
+    client_secret: str | None = None
+    business_hours: dict | None = None
+    slot_minutes: int | None = Field(default=None, ge=10, le=240)
+    min_notice_hours: float | None = Field(default=None, ge=0, le=168)
+
+
+def _google_view() -> dict:
+    g = db.get_settings()["google"]
+    return {"status": google.status(), "settings": {k: g.get(k) for k in
+            ("client_id", "email", "business_hours", "slot_minutes", "min_notice_hours")}}
+
+
+@app.get("/api/google")
+async def google_get():
+    return _google_view()
+
+
+@app.put("/api/google")
+async def google_put(body: GoogleIn):
+    g = db.get_settings()["google"]
+    if body.client_id is not None:
+        cid = body.client_id.strip()
+        if cid and not cid.endswith(".apps.googleusercontent.com"):
+            raise HTTPException(400, "That doesn't look like a Google OAuth client ID (it ends in .apps.googleusercontent.com).")
+        g["client_id"] = cid
+    if body.client_secret:
+        secrets_store.set_secret("google_client_secret", body.client_secret.strip())
+    if body.business_hours is not None:
+        bh = body.business_hours
+        days = [int(d) for d in bh.get("days", []) if 1 <= int(d) <= 7]
+        for k in ("start", "end"):
+            if not re.fullmatch(r"\d{2}:\d{2}", str(bh.get(k, ""))):
+                raise HTTPException(400, "Working hours must look like 09:00")
+        if bh["start"] >= bh["end"]:
+            raise HTTPException(400, "Working hours must end after they start")
+        g["business_hours"] = {"days": days or [1, 2, 3, 4, 5], "start": bh["start"], "end": bh["end"]}
+    if body.slot_minutes is not None:
+        g["slot_minutes"] = body.slot_minutes
+    if body.min_notice_hours is not None:
+        g["min_notice_hours"] = body.min_notice_hours
+    db.set_setting("google", g)
+    return _google_view()
+
+
+@app.get("/api/google/connect")
+async def google_connect():
+    from fastapi.responses import RedirectResponse
+    try:
+        return RedirectResponse(google.auth_url())
+    except google.GoogleError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/google/callback")
+async def google_callback(code: str = "", state: str = "", error: str = ""):
+    from fastapi.responses import HTMLResponse
+    if error:
+        msg, ok = f"Google sign-in was cancelled ({html_escape(error)}).", False
+    else:
+        try:
+            email = await google.finish_auth(code, state)
+            msg, ok = f"Connected {html_escape(email or 'your Google account')}.", True
+        except google.GoogleError as e:
+            msg, ok = html_escape(str(e)), False
+    return HTMLResponse(f"""<!doctype html><meta charset=utf-8><title>JARVIS · Google</title>
+<body style="background:#000;color:#e6eef5;font:16px system-ui;display:grid;place-items:center;height:100vh;margin:0">
+<div style="text-align:center"><p style="font-size:22px;color:{'#4be3a2' if ok else '#ff5a6a'}">{msg}</p>
+<p><a style="color:#3ce7ff" href="/#settings">Back to JARVIS</a></p></div>
+<script>setTimeout(()=>location.href='/#settings',{1800 if ok else 6000})</script></body>""")
+
+
+@app.delete("/api/google")
+async def google_delete():
+    google.disconnect()
+    db.log_activity("Google disconnected", "info", tool="google", source="user")
+    return _google_view()
 
 
 @app.get("/api/system")
@@ -697,6 +789,28 @@ class InternalCall(BaseModel):
     tool: str
     args: dict[str, Any] = {}
     page_url: Optional[str] = None
+
+
+def public_auth(authorization: str = Header(default="")):
+    from shared.settings import private_token
+    if not secrets.compare_digest(authorization.encode(), f"Bearer {private_token('public_mcp_token')}".encode()):
+        raise HTTPException(401, "unauthorized")
+
+
+@app.get("/api/internal/public/tools", dependencies=[Depends(public_auth)])
+async def public_tools():
+    return {"tools": public.tool_list()}
+
+
+@app.post("/api/internal/public/run", dependencies=[Depends(public_auth)])
+async def public_run(body: InternalCall):
+    names = {t["name"] for t in public.tool_list()}
+    if body.tool not in names:
+        return {"status": "error", "error": f"Unknown tool {body.tool}"}
+    try:
+        return {"status": "ok", "output": await public.run(body.tool, body.args)}
+    except Exception as e:
+        return {"status": "error", "error": str(e)[:300]}
 
 
 @app.post("/api/internal/run", dependencies=[Depends(internal_auth)])

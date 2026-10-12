@@ -54,7 +54,66 @@ LOCAL_TOOLS += [
      "input_schema": {"type": "object", "properties": {"message": {"type": "string", "maxLength": 1600}},
                       "required": ["message"]}},
 ]
-PHONE_TOOLS = {"call_me", "send_sms"}
+LOCAL_TOOLS += [
+    {"name": "text_message",
+     "description": "Send an SMS to someone other than the user (via the user's Twilio number). Always waits for the user's approval; "
+                    "say who it's to and what it says. For texting the user themself, use send_sms.",
+     "input_schema": {"type": "object", "properties": {
+         "to": {"type": "string", "description": "Phone number in international format, e.g. +39 333 1234567"},
+         "message": {"type": "string", "maxLength": 1600}}, "required": ["to", "message"]}},
+]
+GOOGLE_TOOLS_DEFS = [
+    {"name": "email_search",
+     "description": "Search the user's Gmail. Uses Gmail search syntax, e.g. 'in:inbox is:unread', 'from:anna newer_than:7d', "
+                    "'subject:invoice'. Returns sender, subject, date and a snippet for each message.",
+     "input_schema": {"type": "object", "properties": {
+         "query": {"type": "string", "maxLength": 300}, "max_results": {"type": "integer", "minimum": 1, "maximum": 25}}}},
+    {"name": "email_read",
+     "description": "Read one email in full (from email_search results).",
+     "input_schema": {"type": "object", "properties": {"message_id": {"type": "string"}}, "required": ["message_id"]}},
+    {"name": "email_organize",
+     "description": "Sort email: add or remove Gmail labels (created if missing), archive (remove from inbox), mark read/unread. "
+                    "Use for tidying the inbox, e.g. label newsletters and archive them. Cannot delete mail.",
+     "input_schema": {"type": "object", "properties": {
+         "message_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 100},
+         "add_labels": {"type": "array", "items": {"type": "string"}},
+         "remove_labels": {"type": "array", "items": {"type": "string"}},
+         "archive": {"type": "boolean"}, "mark_read": {"type": "boolean"}}, "required": ["message_ids"]}},
+    {"name": "email_send",
+     "description": "Send an email from the user's Gmail, or reply to one (pass reply_to_message_id to keep the thread). "
+                    "Always waits for the user's approval before sending.",
+     "input_schema": {"type": "object", "properties": {
+         "to": {"type": "string"}, "subject": {"type": "string", "maxLength": 300},
+         "body": {"type": "string", "maxLength": 20000}, "cc": {"type": "string"},
+         "reply_to_message_id": {"type": "string"}}, "required": ["to", "body"]}},
+    {"name": "calendar_events",
+     "description": "List events on the user's Google Calendar between two times (ISO 8601). Defaults to the next 24 hours.",
+     "input_schema": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}}},
+    {"name": "calendar_free_slots",
+     "description": "Find free appointment slots within the user's working hours, skipping anything already booked.",
+     "input_schema": {"type": "object", "properties": {
+         "from_date": {"type": "string", "description": "YYYY-MM-DD, default today"},
+         "days": {"type": "integer", "minimum": 1, "maximum": 21},
+         "duration_minutes": {"type": "integer", "minimum": 10, "maximum": 240}}}},
+    {"name": "calendar_book",
+     "description": "Create an event / appointment on the user's Google Calendar. If attendee_email is given, Google emails "
+                    "them an invitation, so that needs the user's approval first.",
+     "input_schema": {"type": "object", "properties": {
+         "title": {"type": "string", "maxLength": 200}, "start": {"type": "string", "description": "ISO 8601"},
+         "end": {"type": "string"}, "duration_minutes": {"type": "integer", "minimum": 5, "maximum": 600},
+         "description": {"type": "string", "maxLength": 4000}, "location": {"type": "string"},
+         "attendee_email": {"type": "string"}}, "required": ["title", "start"]}},
+]
+LOCAL_TOOLS += GOOGLE_TOOLS_DEFS
+GOOGLE_TOOLS = {t["name"] for t in GOOGLE_TOOLS_DEFS}
+PHONE_TOOLS = {"call_me", "send_sms", "text_message"}
+
+
+def needs_approval(name: str, args: dict) -> bool:
+    """Backend tools that send something to another person always ask first."""
+    if name in ("email_send", "text_message"):
+        return True
+    return name == "calendar_book" and bool(args.get("attendee_email"))
 LOCAL_NAMES = {t["name"] for t in LOCAL_TOOLS}
 
 
@@ -111,6 +170,34 @@ async def _run_local(name: str, args: dict) -> Any:
     if name == "send_sms":
         from . import phone
         return await phone.sms_owner(args["message"])
+    if name == "text_message":
+        from . import phone
+        return await phone.sms_to(args["to"], args["message"])
+    if name in GOOGLE_TOOLS:
+        from . import google
+        if name == "email_search":
+            return {"messages": await google.search(args.get("query") or "in:inbox", args.get("max_results", 10))}
+        if name == "email_read":
+            return await google.read(args["message_id"])
+        if name == "email_organize":
+            r = await google.organize(args["message_ids"], args.get("add_labels"), args.get("remove_labels"),
+                                      bool(args.get("archive")), args.get("mark_read"))
+            db.log_activity(f"Sorted {r['updated']} email(s)", "ok", tool=name, approval="auto", result=r)
+            return r
+        if name == "email_send":
+            r = await google.send(args["to"], args.get("subject", ""), args["body"], args.get("reply_to_message_id"),
+                                  args.get("cc", ""))
+            db.log_activity(f"Email sent to {r['to']}: {r['subject']}", "ok", tool=name, result=r)
+            return r
+        if name == "calendar_events":
+            return await google.events(args.get("start"), args.get("end"))
+        if name == "calendar_free_slots":
+            return await google.free_slots(args.get("from_date"), args.get("days", 5), args.get("duration_minutes", 30))
+        if name == "calendar_book":
+            r = await google.create_event(args["title"], args["start"], args.get("end"), args.get("description", ""),
+                                          args.get("attendee_email"), args.get("duration_minutes", 30), args.get("location", ""))
+            db.log_activity(f"Booked: {r['title']} at {r['start']}", "ok", tool=name, result=r)
+            return r
     raise ValueError(f"unknown local tool {name}")
 
 
@@ -120,7 +207,10 @@ async def claude_tools() -> tuple[list[dict], dict]:
     """Return (tool definitions for Claude, metadata by name)."""
     from . import phone
     phone_on = phone.configured()
-    defs = [dict(t) for t in LOCAL_TOOLS if phone_on or t["name"] not in PHONE_TOOLS]
+    from . import google
+    google_on = google.connected()
+    defs = [dict(t) for t in LOCAL_TOOLS
+            if (phone_on or t["name"] not in PHONE_TOOLS) and (google_on or t["name"] not in GOOGLE_TOOLS)]
     meta: dict[str, dict] = {t["name"]: {"local": True, "requires_approval": False} for t in LOCAL_TOOLS}
     catalog = await agent_client.tools()
     if catalog and not db.get_settings().get("emergency_stop"):
@@ -166,6 +256,12 @@ def create_approval(tool: str, args: dict, *, kind: str, conversation_id: str | 
                 (conversation_id, tool, json.dumps(args), summary, "pending", db.now(), kind, reason))
     db.log_activity(f"Approval requested: {summary}" + (f" — {reason}" if reason else ""), "pending", tool=tool,
                     approval="required", source=source)
+    if kind == "agent" and tool in ("email_send", "text_message"):
+        try:   # also text the owner so they can answer YES/NO from their phone
+            from . import phone
+            asyncio.get_running_loop().create_task(phone.notify_approval(cur.lastrowid))
+        except RuntimeError:
+            pass
     return cur.lastrowid
 
 
@@ -180,9 +276,17 @@ async def run_tool(tool: str, args: dict, *, conversation_id: str | None = None,
         return {"status": "error", "error": "Emergency stop is active — no actions will run until it is released."}
 
     if tool in LOCAL_NAMES:
+        if needs_approval(tool, args) and not user_initiated:
+            aid = create_approval(tool, args, kind="blocking" if wait else "agent", conversation_id=conversation_id,
+                                  reason="sends a message to someone", source=source)
+            if not wait:
+                return {"status": "pending_approval", "approval_id": aid,
+                        "note": "Waiting for the user's approval; it will be sent once they approve."}
+            return _approval_result(await wait_for_decision(aid, wait), aid, wait)
         try:
             return {"status": "ok", "output": await _run_local(tool, args)}
         except Exception as e:
+            db.log_activity(f"{tool} failed", "error", tool=tool, error=str(e)[:300], source=source)
             return {"status": "error", "error": str(e)}
 
     catalog = await agent_client.tools(force=True)
@@ -201,15 +305,7 @@ async def run_tool(tool: str, args: dict, *, conversation_id: str | None = None,
                               reason="needs your approval", source=source)
         if not wait:
             return {"status": "pending_approval", "approval_id": aid}
-        row = await wait_for_decision(aid, wait)
-        if row["status"] == "executed":
-            return {"status": "ok", "output": json.loads(row["result"] or "null"), "approval_id": aid}
-        if row["status"] == "failed":
-            return {"status": "error", "error": (json.loads(row["result"] or "{}") or {}).get("error", "failed"), "approval_id": aid}
-        if row["status"] == "denied":
-            return {"status": "error", "error": "The user denied this action. Don't retry it unless they ask.", "approval_id": aid}
-        return {"status": "error", "error": f"Nobody approved this within {int(wait)}s, so it did not run. "
-                "Tell the user it's waiting for approval and ask them to approve, then try again.", "approval_id": aid}
+        return _approval_result(await wait_for_decision(aid, wait), aid, wait)
 
     res = await agent_client.execute(uuid.uuid4().hex, tool, args, approved=user_initiated)
     approval = "user-initiated" if user_initiated else "auto"
@@ -218,6 +314,17 @@ async def run_tool(tool: str, args: dict, *, conversation_id: str | None = None,
         return {"status": "ok", "output": res.get("output")}
     db.log_activity(summary, "error", tool=tool, approval=approval, error=res.get("error"), source=source)
     return {"status": "error", "error": res.get("error")}
+
+
+def _approval_result(row: dict, aid: int, wait: float) -> dict:
+    if row["status"] == "executed":
+        return {"status": "ok", "output": json.loads(row["result"] or "null"), "approval_id": aid}
+    if row["status"] == "failed":
+        return {"status": "error", "error": (json.loads(row["result"] or "{}") or {}).get("error", "failed"), "approval_id": aid}
+    if row["status"] == "denied":
+        return {"status": "error", "error": "The user denied this action. Don't retry it unless they ask.", "approval_id": aid}
+    return {"status": "error", "error": f"Nobody approved this within {int(wait)}s, so it did not run. "
+            "Tell the user it's waiting for approval and ask them to approve, then try again.", "approval_id": aid}
 
 
 def add_event(conversation_id: str, payload: dict, text: str) -> None:
@@ -259,6 +366,11 @@ async def decide_approval(approval_id: int, approve: bool) -> dict:
 
     if db.get_settings().get("emergency_stop"):
         res = {"ok": False, "error": "Emergency stop is active"}
+    elif ap["tool"] in LOCAL_NAMES:
+        try:
+            res = {"ok": True, "output": await _run_local(ap["tool"], args)}
+        except Exception as e:
+            res = {"ok": False, "error": str(e)}
     else:
         res = await agent_client.execute(f"approval-{approval_id}", ap["tool"], args, approved=True)
     status = "executed" if res.get("ok") else "failed"

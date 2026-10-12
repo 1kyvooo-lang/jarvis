@@ -139,6 +139,54 @@ def _tail(path: Path, n: int = 6) -> str:
         return ""
 
 
+# ---------------------------------------------------------------- receptionist brain (separate Hermes profile)
+
+PUBLIC_HERMES_PORT = int(os.getenv("JARVIS_PUBLIC_HERMES_PORT", "8643"))
+public_gateway = Service("hermes-public", f"http://127.0.0.1:{PUBLIC_HERMES_PORT}/health")
+
+
+def public_needed() -> bool:
+    from . import google
+    r = db.get_settings().get("receptionist") or {}
+    return bool((r.get("answer_others") and phone.configured()) or (r.get("inbox_assistant") and google.connected()))
+
+
+async def _ensure_public() -> None:
+    from shared.settings import private_token
+    if not public_needed():
+        if public_gateway.proc:
+            public_gateway.stop()
+        public_gateway.state, public_gateway.detail = "stopped", "not needed"
+        return
+    key = private_token("hermes_public_api_key")
+    client = hermes.HermesClient(url=f"http://127.0.0.1:{PUBLIC_HERMES_PORT}", key=key)
+    if public_gateway.proc and public_gateway.proc.poll() is None:
+        h = await client.health()
+        public_gateway.state = "running" if h["authorized"] else "starting"
+        public_gateway.detail = h["error"] or ""
+        return
+    binary = hermes_bin()
+    if not binary:
+        public_gateway.state = "unavailable"
+        return
+    if public_gateway.proc and public_gateway.proc.poll() is not None:
+        public_gateway.restarts += 1
+        public_gateway.detail = "Receptionist stopped unexpectedly:\n" + _tail(LOG_DIR / "hermes-public.out")
+        if time.time() - public_gateway._last_start < 10 * min(public_gateway.restarts, 6):
+            public_gateway.state = "failed"
+            return
+    home = hermes.public_home()
+    try:
+        hermes.ensure_public_config(home)
+        hermes.ensure_env(home=home, key=key, port=PUBLIC_HERMES_PORT)
+    except Exception as e:
+        log.warning("couldn't write receptionist config: %s", e)
+        return
+    public_gateway.spawn([binary, "gateway", "run"], env={
+        "HERMES_HOME": str(home), "API_SERVER_ENABLED": "true", "API_SERVER_KEY": key,
+        "API_SERVER_HOST": "127.0.0.1", "API_SERVER_PORT": str(PUBLIC_HERMES_PORT)})
+
+
 # ---------------------------------------------------------------- phone line (Twilio)
 
 PHONE_PORT = int(os.getenv("JARVIS_PHONE_PORT", "8010"))
@@ -208,7 +256,7 @@ async def restart_phone() -> None:
 
 async def supervise(interval: float = 4.0) -> None:
     while True:
-        for fn in (_ensure_agent, _ensure_gateway, _ensure_phone):
+        for fn in (_ensure_agent, _ensure_gateway, _ensure_phone, _ensure_public):
             try:
                 await fn()
             except Exception:
@@ -228,6 +276,7 @@ def stop_all() -> None:
         _task.cancel()
     agent.stop()
     gateway.stop()
+    public_gateway.stop()
     tunnel.stop()
     if _phone_server:
         _phone_server.cancel()

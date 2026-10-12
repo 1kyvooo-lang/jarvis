@@ -79,6 +79,7 @@ def test_bad_signature_rejected(client):
 
 
 def test_stranger_is_refused(client):
+    db.set_setting("receptionist", {**db.get_settings()["receptionist"], "answer_others": False})
     r = post(client, "/twilio/voice", {"From": "+391111111111", "CallSid": "CAx"})
     assert "not available" in r.text and "<Hangup/>" in r.text
 
@@ -175,3 +176,72 @@ def test_signature_matches_twilio_reference():
     params = {"CallSid": "CA1234567890ABCDE", "Caller": "+12349013030", "Digits": "1234",
               "From": "+12349013030", "To": "+18005551212"}
     assert phone.signature(url, params, "12345") == "0/KCTR6DLpKmkAf8muzZqo1nDgQ="
+
+
+class PublicBrain:
+    """Stands in for the receptionist profile: books via the real public tool code path."""
+    def __init__(self):
+        self.seen = []
+
+    async def stream(self, *, conversation, text, instructions):
+        import re as _re
+        self.seen.append((conversation, text, instructions))
+        ticket = _re.search(r"ticket=\"(T[0-9a-f]+)\"", instructions).group(1)
+        from backend import public
+        await public.run("take_message", {"ticket": ticket, "name": "Marco", "message": text})
+        yield {"type": "tool_start", "id": "t1", "name": "take_message", "input": {}}
+        yield {"type": "text", "delta": "Thanks Marco, I've passed that on."}
+        yield {"type": "done"}
+
+
+def test_receptionist_answers_strangers_and_texts_owner(client, monkeypatch):
+    from backend import public
+    db.set_setting("receptionist", {**db.get_settings()["receptionist"], "answer_others": True, "business_name": "Kyvo Studio"})
+    pb = PublicBrain()
+    monkeypatch.setattr(public, "brain", lambda: pb)
+    r = post(client, "/twilio/voice", {"From": "+391111111111", "To": TWILIO_NO, "CallSid": "CApub"})
+    assert "<Gather" in r.text and phone.CALLS["CApub"]["public"]
+    r = post(client, "/twilio/voice/turn", {"From": "+391111111111", "CallSid": "CApub", "SpeechResult": "please ask him to call me"})
+    wait = r.text.split('<Redirect method="POST">')[1].split("</Redirect>")[0].replace("&amp;", "&")
+    for _ in range(40):
+        r = post(client, wait, {"From": "+391111111111", "CallSid": "CApub"})
+        if "<Gather" in r.text:
+            break
+        wait = r.text.split('<Redirect method="POST">')[1].split("</Redirect>")[0].replace("&amp;", "&")
+        time.sleep(0.05)
+    conv, text, instr = pb.seen[-1]
+    assert "NOT talking to" in instr and "Kyvo Studio" in instr and "PHONE CALL" in instr
+    texts = [s[2] for s in SENT if s[1].endswith("/Messages.json")]
+    assert texts and texts[-1]["To"] == OWNER and "Message from" in texts[-1]["Body"] and "+391111111111" in texts[-1]["Body"]
+    # strangers can never approve things
+    r = post(client, "/twilio/voice/approve?job=x&a=1", {"From": "+391111111111", "CallSid": "CApub", "SpeechResult": "yes"})
+    assert "<Hangup/>" in r.text
+
+
+def test_stranger_sms_needs_owner_yes(client, monkeypatch):
+    from backend import public
+
+    class Drafter:
+        async def stream(self, *, conversation, text, instructions):
+            yield {"type": "text", "delta": "Hi! We're open 9-18, want to book?"}
+            yield {"type": "done"}
+    monkeypatch.setattr(public, "brain", lambda: Drafter())
+    db.set_setting("receptionist", {**db.get_settings()["receptionist"], "answer_others": True, "approve_by_text": True})
+    SENT.clear()
+    post(client, "/twilio/sms", {"From": "+392222222222", "To": TWILIO_NO, "Body": "are you open tomorrow?"})
+    for _ in range(40):
+        ap = db.one("SELECT * FROM approvals WHERE tool='text_message' AND status='pending' ORDER BY id DESC LIMIT 1")
+        asked = [s for s in SENT if s[1].endswith("/Messages.json") and "needs your OK" in s[2]["Body"]]
+        if ap and asked:
+            break
+        time.sleep(0.05)
+    assert ap and asked and asked[-1][2]["To"] == OWNER
+    assert not [s for s in SENT if s[1].endswith("/Messages.json") and s[2]["To"] == "+392222222222"]   # nothing sent yet
+    post(client, "/twilio/sms", {"From": OWNER, "To": TWILIO_NO, "Body": f"YES {ap['id']}"})
+    for _ in range(40):
+        out = [s for s in SENT if s[1].endswith("/Messages.json") and s[2]["To"] == "+392222222222"]
+        if out:
+            break
+        time.sleep(0.05)
+    assert out and out[-1][2]["Body"].startswith("Hi! We're open")
+    assert db.one("SELECT status FROM approvals WHERE id=?", (ap["id"],))["status"] == "executed"

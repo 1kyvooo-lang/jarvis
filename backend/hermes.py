@@ -111,6 +111,58 @@ def ensure_config(home: Path | None = None) -> dict:
     return {"path": str(path), "changed": changed}
 
 
+PUBLIC_PROFILE = "jarvis-public"
+# Keys copied from your main Hermes config so the receptionist uses the same model and provider.
+_PUBLIC_COPY = ("model", "providers", "custom_providers", "fallback_model", "fallback_providers", "agent",
+                "auxiliary", "compression", "timeouts")
+
+
+def public_home() -> Path:
+    return hermes_home() / "profiles" / PUBLIC_PROFILE
+
+
+def ensure_public_config(home: Path | None = None) -> list[str]:
+    """Write the receptionist profile's config: same model as your main Hermes, but no memory,
+    no web/skills/session search, and only the `jarvis_public` MCP server (booking + messages)."""
+    from ruamel.yaml import YAML
+    home = home or public_home()
+    main = hermes_home() / "config.yaml"
+    y = YAML(typ="safe")
+    src = (y.load(main.read_text()) or {}) if main.exists() else {}
+    py = ROOT / ".venv" / "bin" / "python"
+    want: dict = {k: src[k] for k in _PUBLIC_COPY if k in src}
+    want["mcp_servers"] = {"jarvis_public": {
+        "command": str(py if py.exists() else Path(sys.executable)), "args": ["-m", "jarvis_mcp.public_server"],
+        "env": {"PYTHONPATH": str(ROOT), "JARVIS_ROOT": str(ROOT)}, "timeout": 120, "connect_timeout": 60}}
+    want["platform_toolsets"] = {"api_server": ["jarvis_public"]}
+    want["memory"] = {"memory_enabled": False, "user_profile_enabled": False}
+    # Its own small gateway (API server only), separate from your main one.
+    want["gateway"] = {"standalone": True}
+    path = home / "config.yaml"
+    cur = (y.load(path.read_text()) or {}) if path.exists() else None
+    if cur == want:
+        return []
+    home.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
+        YAML().dump(want, f)
+    tmp.replace(path)
+    # Env-based provider keys (if you put e.g. ANTHROPIC_API_KEY in ~/.hermes/.env) are shared too.
+    main_env = hermes_home() / ".env"
+    if main_env.exists():
+        keep = [l for l in main_env.read_text().splitlines()
+                if "=" in l and not l.lstrip().startswith("#") and not l.split("=", 1)[0].strip().startswith("API_SERVER")
+                and any(t in l.split("=", 1)[0] for t in ("API_KEY", "BASE_URL", "WORKSPACE", "_ORG"))]
+        env = home / ".env"
+        existing = env.read_text().splitlines() if env.exists() else []
+        names = {l.split("=", 1)[0] for l in existing if "=" in l}
+        add = [l for l in keep if l.split("=", 1)[0] not in names]
+        if add:
+            env.write_text("\n".join(existing + add).strip() + "\n")
+            os.chmod(env, 0o600)
+    return ["config.yaml"]
+
+
 def ensure_env(home: Path | None = None, key: str | None = None, port: int | None = None) -> list[str]:
     """Write the API-server settings into Hermes's own .env. Hermes treats API_SERVER_KEY
     as a profile secret and (on a normal install) only reads it from ~/.hermes/.env, not

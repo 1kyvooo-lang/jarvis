@@ -85,6 +85,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "browser": {"headless": False},
     "phone": {"enabled": False, "account_sid": "", "twilio_number": "", "owner_number": "",
               "language": "en-GB", "say_voice": "Polly.Brian", "sms_conversation": ""},
+    "google": {"client_id": "", "email": "", "business_hours": {"days": [1, 2, 3, 4, 5], "start": "09:00", "end": "18:00"},
+               "slot_minutes": 30, "min_notice_hours": 2},
+    "receptionist": {"answer_others": True, "business_name": "", "about": "", "booking": True, "appointment_minutes": 30,
+                     "inbox_assistant": False, "inbox_minutes": 10, "allow_archive": False, "approve_by_text": True,
+                     "labels": ["Needs reply", "Appointments", "Important", "Receipts", "Newsletters", "Other"]},
     "wake": {"enabled": True, "threshold": 0.5, "greeting": "Yes? What do you need?", "open_at_login": True},
     "emergency_stop": False,
 }
