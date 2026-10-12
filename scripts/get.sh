@@ -4,7 +4,8 @@
 set -euo pipefail
 REPO="${JARVIS_UPDATE_REPO:-1kyvooo-lang/jarvis}"
 echo "Downloading the latest JARVIS…"
-SHA="$(curl -fsSL "https://api.github.com/repos/$REPO/commits/main" | grep -m1 '"sha"' | cut -d'"' -f4)"
+INFO="$(curl -fsSL "https://api.github.com/repos/$REPO/commits/main" || true)"
+SHA="$(printf '%s\n' "$INFO" | grep -m1 '"sha"' | cut -d'"' -f4 || true)"
 [ -n "$SHA" ] || { echo "Couldn't reach GitHub. Check your internet and try again."; exit 1; }
 TMP="$(mktemp -d)"
 curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$SHA" | tar -xz -C "$TMP"
