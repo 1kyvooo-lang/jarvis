@@ -9,3 +9,4 @@ jsonschema>=4.21
 keyring>=25.0
 pytest>=8.0
 python-multipart>=0.0.9
+openwakeword==0.4.0

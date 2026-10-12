@@ -60,7 +60,8 @@ export class CallSession {
   get current() { return this.state }
   private ended() { return this.state === 'ended' }  // read fresh after awaits
 
-  async start() {
+  /** Start listening; with `greeting`, JARVIS says it first (e.g. after the wake word). */
+  async start(greeting?: string) {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -81,6 +82,12 @@ export class CallSession {
     this.buf = new Float32Array(this.analyser.fftSize)
     this.calibrating = 500
     this.timer = window.setInterval(() => this.tick(), TICK_MS)
+    if (greeting) {
+      this.setState('speaking')
+      try { await this.hooks.speak(greeting) } catch { /* still listen */ }
+      if (this.state === 'speaking') this.listen()
+      return
+    }
     this.listen()
   }
 

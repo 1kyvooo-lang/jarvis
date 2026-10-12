@@ -38,7 +38,7 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
     setBusy(name)
     try { await fn(); flash(ok); onChange() } catch (e) { flash((e as Error).message, true) } finally { setBusy(null) }
   }
-  const save = (part: Partial<Settings>, ok = 'Saved') => act('save', async () => { const r = await api.saveSettings(part); setS(r.settings) }, ok)
+  const save = (part: Partial<Settings>, ok = 'Saved') => act('save', async () => { const r = await api.saveSettings(part); setS(r.settings); dispatchEvent(new Event('jarvis:settings')) }, ok)
   const savePerms = () => perms && act('perms', async () => { setPerms(await api.savePermissions(perms)); setTools((await api.agentTools()).tools) }, 'Permissions saved')
 
   const testVoice = useMemo(() => () => {
@@ -143,6 +143,19 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
       </Section>
 
       <PhoneSection status={status} onChange={onChange} />
+
+      <Section title="“Hey JARVIS” wake word">
+        <p className="text-sm text-dim mb-4">While the JARVIS window is open (it can be in the background), he listens for “Hey JARVIS” right here on your Mac, then asks what you need and talks with you hands-free. Nothing is recorded or sent anywhere until you’ve said the wake word.</p>
+        <div className="grid md:grid-cols-2 gap-4">
+          <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#3CE7FF] size-4" checked={s.wake.enabled} onChange={e => setS({ ...s, wake: { ...s.wake, enabled: e.target.checked } })} /> Listen for “Hey JARVIS”</label>
+          <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#3CE7FF] size-4" checked={s.wake.open_at_login} onChange={e => setS({ ...s, wake: { ...s.wake, open_at_login: e.target.checked } })} /> Open the JARVIS window at login so he’s always listening</label>
+          <Field label="What he says when he wakes up"><input className={inputCls} value={s.wake.greeting} onChange={e => setS({ ...s, wake: { ...s.wake, greeting: e.target.value } })} /></Field>
+          <Field label={`Sensitivity (${Math.round((1 - s.wake.threshold) * 100)}%)`} hint="Higher hears you from further away but may wake by mistake.">
+            <input type="range" min={0.2} max={0.85} step={0.05} value={1.05 - s.wake.threshold} onChange={e => setS({ ...s, wake: { ...s.wake, threshold: Math.round((1.05 - Number(e.target.value)) * 100) / 100 } })} className="w-full accent-[#3CE7FF]" />
+          </Field>
+        </div>
+        <div className="mt-4"><Button tone="primary" onClick={() => save({ wake: s.wake }, 'Wake word settings saved — reopen the JARVIS window to apply sensitivity')}>Save</Button></div>
+      </Section>
 
       <Section title="Browser (Playwright)">
         <p className="text-sm text-dim mb-4">JARVIS browses in its own Chrome window with its own sign-ins. Reading pages never asks. These always ask first:</p>

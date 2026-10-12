@@ -1,180 +1,44 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
-import { api, streamChat } from '../api'
-import type { ChatEvent, Conversation, Message, Settings, Status, ToolCall } from '../api'
+import { api } from '../api'
+import type { Conversation, Message, Status, ToolCall } from '../api'
 import { clock, timeAgo, usePoll } from '../hooks'
 import { Button, Core, Icon, Pill, inputCls } from '../ui'
 import type { CoreState } from '../ui'
-import { makeVoice } from '../voice'
-import { CallSession } from '../callMode'
 import type { CallState } from '../callMode'
-import { transcribe } from '../api'
+import { useJarvis } from '../engine'
+import { levels } from '../levels'
 
 export default function Assistant({ status }: { status: Status | null }) {
+  const j = useJarvis()
+  const { cid, setCid, msgs, busy, voice, partial, notice, call, coreState, label, transcribing } = j
   const [q, setQ] = useState('')
-  const convs = usePoll<Conversation[]>(() => api.conversations(q), 0, [q])
-  const [cid, setCid] = useState<string | null>(() => sessionStorage.getItem('jarvis.cid'))
-  const [msgs, setMsgs] = useState<Message[]>([])
+  const convs = usePoll<Conversation[]>(() => api.conversations(q), 0, [q, j.version])
   const [input, setInput] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [voice, setVoice] = useState<'idle' | 'listening' | 'speaking'>('idle')
-  const [partial, setPartial] = useState('')
-  const [notice, setNotice] = useState<string | null>(null)
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  const cidRef = useRef<string | null>(cid)
   const endRef = useRef<HTMLDivElement>(null)
   const holdRef = useRef<number>(0)
-
-  useEffect(() => { api.settings().then(r => setSettings(r.settings)).catch(() => {}) }, [])
-  useEffect(() => { cidRef.current = cid; if (cid) sessionStorage.setItem('jarvis.cid', cid); else sessionStorage.removeItem('jarvis.cid') }, [cid])
-  useEffect(() => {
-    if (!cid) { setMsgs([]); return }
-    api.conversation(cid).then(c => setMsgs(c.messages)).catch(() => { setCid(null) })
-  }, [cid])
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [msgs, partial])
-
-  // Pick up approval outcomes that land in this conversation while it is open.
-  useEffect(() => {
-    if (!cid || busy) return
-    const t = setInterval(() => api.conversation(cid).then(c => {
-      setMsgs(prev => (c.messages.length !== prev.length ? c.messages : prev))
-    }).catch(() => {}), 4000)
-    return () => clearInterval(t)
-  }, [cid, busy])
-
-  const updateLast = (fn: (m: Message) => Message) =>
-    setMsgs(prev => { const copy = prev.slice(); copy[copy.length - 1] = fn(copy[copy.length - 1]); return copy })
-
-  const useEleven = !!status?.voice.elevenlabs && settings?.voice.provider !== 'browser'
-  const voiceKit = useMemo(() => makeVoice(useEleven, settings?.voice.browser_voice_name, settings?.voice.rate),
-    [useEleven, settings?.voice.browser_voice_name, settings?.voice.rate])
-  const lastWasVoice = useRef(false)
-
-  const speak = useCallback((text: string) => {
-    // Speak replies when auto-speak is on, or when you asked by voice.
-    if (!text.trim() || !(settings?.voice.auto_speak || lastWasVoice.current)) return
-    setVoice('speaking')
-    voiceKit.speaker.speak(text, () => setVoice('idle')).catch(e => { setVoice('idle'); setNotice(`Couldn't speak the reply: ${(e as Error).message}`) })
-  }, [settings, voiceKit])
-
-  const busyRef = useRef(false)
-  const send = useCallback(async (text: string, opts: { silent?: boolean } = {}): Promise<string> => {
-    text = text.trim()
-    if (!text || busyRef.current) return ''
-    busyRef.current = true
-    voiceKit.speaker.cancel()
-    setInput(''); setNotice(null); setBusy(true)
-    const now = new Date().toISOString()
-    setMsgs(prev => [...prev, { id: `u${Date.now()}`, role: 'user', text, created_at: now },
-      { id: `a${Date.now()}`, role: 'assistant', text: '', tools: [], created_at: now, streaming: true }])
-    const ac = new AbortController(); abortRef.current = ac
-    let full = ''
-    try {
-      await streamChat(cidRef.current, text, (e: ChatEvent) => {
-        if (e.type === 'conversation') { if (e.id !== cidRef.current) { cidRef.current = e.id; setCid(e.id) } }
-        else if (e.type === 'text') {
-          full += e.delta
-          updateLast(m => {
-            const parts = [...(m.parts || [])]
-            const last = parts[parts.length - 1]
-            if (last?.type === 'text') parts[parts.length - 1] = { type: 'text', text: last.text + e.delta }
-            else parts.push({ type: 'text', text: e.delta })
-            return { ...m, text: m.text + e.delta, parts }
-          })
-        } else if (e.type === 'tool_start') {
-          full = ''  // only the answer after the last tool is spoken
-          updateLast(m => ({ ...m, parts: [...(m.parts || []), { type: 'tool', id: e.id }], tools: [...(m.tools || []), { id: e.id, name: e.name, input: e.input, status: 'running' }] }))
-        } else if (e.type === 'tool_result') {
-          updateLast(m => ({ ...m, tools: (m.tools || []).map(t => t.id === e.id ? { ...t, status: e.status, output: e.output, error: e.error, approval_id: e.approval_id } : t) }))
-        } else if (e.type === 'error') updateLast(m => ({ ...m, error: e.message }))
-        else if (e.type === 'stopped') updateLast(m => ({ ...m, error: 'Stopped.' }))
-      }, ac.signal)
-      if (!opts.silent) speak(full)
-      return full
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') updateLast(m => ({ ...m, error: (err as Error).message }))
-      else updateLast(m => ({ ...m, error: 'Stopped.' }))
-    } finally {
-      updateLast(m => ({ ...m, streaming: false }))
-      setBusy(false); busyRef.current = false; abortRef.current = null
-      convs.refresh()
-    }
-    return ''
-  }, [convs, speak, voiceKit])
-
-  // ---- call mode: hands-free back-and-forth conversation
-  const [call, setCall] = useState<CallState | null>(null)
-  const [callStart, setCallStart] = useState(0)
-  const [muted, setMuted] = useState(false)
   const [, tick] = useState(0)
-  const callRef = useRef<CallSession | null>(null)
-  const levelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [msgs, partial])
   useEffect(() => { if (!call || call === 'ended') return; const t = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(t) }, [call])
+  const levelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!call) return
+    let raf = 0
+    const loop = () => { if (levelRef.current) levelRef.current.style.transform = `scale(${1 + Math.max(levels.mic, levels.out) * 0.6})`; raf = requestAnimationFrame(loop) }
+    loop(); return () => cancelAnimationFrame(raf)
+  }, [call])
 
-  const startCall = async () => {
-    if (!useEleven) { setNotice('Calls need ElevenLabs. Add your key in Settings → Voice.'); return }
-    if (!status?.brain.ready) { setNotice('Hermes isn’t ready yet.'); return }
-    voiceKit.speaker.cancel(); setNotice(null); setMuted(false)
-    const session = new CallSession({
-      transcribe: blob => transcribe(blob),
-      respond: text => send(text, { silent: true }),
-      speak: text => new Promise<void>(resolve => {
-        voiceKit.speaker.speak(text, resolve).catch(e => {
-          if ((e as Error).name !== 'AbortError') setNotice(`Couldn't speak the reply: ${(e as Error).message}`)
-          resolve()
-        })
-      }),
-      stopSpeaking: () => voiceKit.speaker.cancel(),
-      onState: st => { setCall(st); if (st === 'ended') { callRef.current = null; setTimeout(() => setCall(null), 600) } },
-      onLevel: lvl => { if (levelRef.current) levelRef.current.style.transform = `scale(${1 + Math.min(lvl * 9, 0.6)})` },
-      onError: msg => setNotice(msg),
-    })
-    callRef.current = session
-    setCallStart(Date.now())
-    setCall('starting')
-    await session.start()
-  }
-  const endCall = () => { callRef.current?.end(); if (cidRef.current && busyRef.current) api.stopChat(cidRef.current).catch(() => {}) }
-  useEffect(() => () => { callRef.current?.end() }, [])
-
-  const stop = () => {
-    if (cidRef.current) api.stopChat(cidRef.current).catch(() => {})
-    abortRef.current?.abort()
-    voiceKit.speaker.cancel(); voiceKit.listener.cancel(); setVoice('idle'); setPartial('')
-  }
-
-  // ---- voice: tap to toggle, or press-and-hold to talk and release to send
-  const [transcribing, setTranscribing] = useState(false)
-  const startListening = async () => {
-    voiceKit.speaker.cancel(); setPartial(''); setNotice(null)
-    try { await voiceKit.listener.start(t => setPartial(t)); setVoice('listening') }
-    catch (e) { setNotice((e as Error).message); setVoice('idle') }
-  }
-  const stopListening = async () => {
-    setVoice('idle'); setTranscribing(useEleven); setPartial(useEleven ? 'Transcribing…' : partial)
-    try {
-      const text = await voiceKit.listener.stop()
-      setPartial('')
-      if (text) { lastWasVoice.current = true; send(text) }
-      else setNotice('I didn’t catch that — try again.')
-    } catch (e) { setPartial(''); setNotice((e as Error).message) }
-    finally { setTranscribing(false) }
-  }
+  const send = (text: string) => { if (text.trim()) { setInput(''); j.send(text) } }
   const micDown = () => {
-    if (voice === 'listening') { holdRef.current = 0; stopListening(); return }
-    holdRef.current = Date.now(); startListening()
+    if (voice === 'listening') { holdRef.current = 0; j.stopListening(); return }
+    holdRef.current = Date.now(); j.startListening()
   }
-  const micUp = () => { if (holdRef.current && Date.now() - holdRef.current > 400) stopListening(); holdRef.current = 0 }
+  const micUp = () => { if (holdRef.current && Date.now() - holdRef.current > 400) j.stopListening(); holdRef.current = 0 }
   const micKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (voice === 'listening') stopListening(); else startListening() }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (voice === 'listening') j.stopListening(); else j.startListening() }
   }
-
-  const coreState: CoreState = status?.emergency_stop ? 'stopped' : !status?.brain.ready ? 'offline' : call === 'speaking' ? 'speaking' : call === 'listening' || call === 'hearing' ? 'listening' : call === 'thinking' && !busy ? 'thinking' : transcribing ? 'thinking' : voice === 'listening' ? 'listening' : voice === 'speaking' ? 'speaking'
-    : busy && msgs[msgs.length - 1]?.tools?.some(t => t.status === 'running') ? 'acting' : busy ? 'thinking' : 'idle'
-  const label = { idle: 'Ready', listening: 'Listening…', thinking: 'Thinking…', speaking: 'Speaking…', acting: 'Working on your Mac…', stopped: 'Actions halted', offline: 'Offline' }[coreState]
-
-  const newChat = () => { stop(); setCid(null); setMsgs([]) }
+  void transcribing
+  const newChat = () => { j.newChat(); convs.refresh() }
 
   return (
     <div className="h-full flex min-h-0">
@@ -205,7 +69,7 @@ export default function Assistant({ status }: { status: Status | null }) {
           <Core state={coreState} size={52} />
           <div className="min-w-0">
             <p className="font-display text-[17px]">{label}</p>
-            <p className="text-[13px] text-faint truncate">Hermes{status?.brain.model ? ` · ${status.brain.model}` : ''} · voice: {voiceKit.provider}{status && !status.agent.online && ' · Mac agent offline'}</p>
+            <p className="text-[13px] text-faint truncate">Hermes{status?.brain.model ? ` · ${status.brain.model}` : ''} · voice: {j.voiceProvider}{j.wake.status === 'listening' ? ' · say “Hey JARVIS”' : ''}{status && !status.agent.online && ' · Mac agent offline'}</p>
           </div>
         </div>
 
@@ -217,7 +81,7 @@ export default function Assistant({ status }: { status: Status | null }) {
                 <p className="font-display text-xl mt-6">How can I help?</p>
                 <div className="flex flex-wrap gap-2 justify-center mt-5">
                   {['What’s my Mac’s battery and disk status?', 'Find files named “invoice” in my Documents', 'Remember that I prefer short answers', 'Open github.com and tell me what’s trending'].map(s => (
-                    <Button key={s} size="sm" onClick={() => { lastWasVoice.current = false; send(s) }} disabled={!status?.brain.ready}>{s}</Button>
+                    <Button key={s} size="sm" onClick={() => send(s)} disabled={!status?.brain.ready}>{s}</Button>
                   ))}
                 </div>
                 {status && !status.brain.ready && <p className="text-amber text-sm mt-6 max-w-[52ch] mx-auto">Hermes isn’t ready: {status.brain.detail || 'starting up…'}</p>}
@@ -229,16 +93,15 @@ export default function Assistant({ status }: { status: Status | null }) {
           </div>
         </div>
 
-        {call && <CallPanel state={call} busy={busy} seconds={Math.floor((Date.now() - callStart) / 1000)} muted={muted}
+        {call && <CallPanel state={call} busy={busy} seconds={Math.floor((Date.now() - j.callStart) / 1000)} muted={j.muted}
           levelRef={levelRef} coreState={coreState}
-          onMute={() => { const m = !muted; setMuted(m); callRef.current?.setMuted(m) }}
-          onInterrupt={() => { voiceKit.speaker.cancel() }} onEnd={endCall} notice={notice} />}
-        <form className={`px-8 pb-6 pt-2 ${call ? 'hidden' : ''}`} onSubmit={e => { e.preventDefault(); lastWasVoice.current = false; send(input) }}>
+          onMute={j.toggleMute} onInterrupt={j.interrupt} onEnd={j.endCall} notice={notice} />}
+        <form className={`px-8 pb-6 pt-2 ${call ? 'hidden' : ''}`} onSubmit={e => { e.preventDefault(); send(input) }}>
           <div className="max-w-[760px] mx-auto">
             {notice && <p className="text-amber text-sm mb-2" role="alert">{notice}</p>}
             <div className="panel flex items-end gap-2 p-2 focus-within:border-arc/60">
               <textarea value={input} onChange={e => setInput(e.target.value)} rows={1}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); lastWasVoice.current = false; send(input) } }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) } }}
                 placeholder={voice === 'listening' ? 'Listening…' : 'Message JARVIS'} aria-label="Message"
                 className="flex-1 resize-none bg-transparent outline-none px-2 py-2 max-h-40 placeholder:text-faint" />
               <button type="button" aria-label={voice === 'listening' ? 'Stop listening' : 'Push to talk'} aria-pressed={voice === 'listening'}
@@ -246,12 +109,12 @@ export default function Assistant({ status }: { status: Status | null }) {
                 className={`size-10 grid place-items-center rounded-lg border ${voice === 'listening' ? 'border-arc text-arc bg-arc/10 shadow-[0_0_20px_-4px_#3CE7FF]' : 'border-seam text-dim hover:text-ink'}`}>
                 <Icon name="mic" />
               </button>
-              <button type="button" onClick={startCall} aria-label="Start a voice call" title="Talk hands-free, like a phone call"
+              <button type="button" onClick={() => j.startCall()} aria-label="Start a voice call" title="Talk hands-free, like a phone call"
                 className="h-10 px-3 inline-flex items-center gap-2 rounded-lg border border-seam text-dim hover:text-ink hover:border-arc/60 text-sm">
                 <Icon name="phone" /><span className="max-sm:hidden">Call</span>
               </button>
               {busy || voice === 'speaking'
-                ? <button type="button" onClick={stop} aria-label="Stop" className="size-10 grid place-items-center rounded-lg bg-fault/15 text-fault border border-fault/50"><Icon name="stop" /></button>
+                ? <button type="button" onClick={j.stop} aria-label="Stop" className="size-10 grid place-items-center rounded-lg bg-fault/15 text-fault border border-fault/50"><Icon name="stop" /></button>
                 : <button aria-label="Send" disabled={!input.trim() || !status?.brain.ready} className="size-10 grid place-items-center rounded-lg bg-arc text-black disabled:opacity-30"><Icon name="send" /></button>}
             </div>
             <p className="text-[12px] text-faint mt-2">Enter to send · Shift+Enter for a new line · tap the mic to talk and tap again to send, or hold it while you speak</p>

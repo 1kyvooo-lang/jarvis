@@ -85,6 +85,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "browser": {"headless": False},
     "phone": {"enabled": False, "account_sid": "", "twilio_number": "", "owner_number": "",
               "language": "en-GB", "say_voice": "Polly.Brian", "sms_conversation": ""},
+    "wake": {"enabled": True, "threshold": 0.5, "greeting": "Yes? What do you need?", "open_at_login": True},
     "emergency_stop": False,
 }
 

@@ -67,7 +67,9 @@ fi
 for B in "/Applications/Google Chrome.app" "\$HOME/Applications/Google Chrome.app" "/Applications/Microsoft Edge.app" "/Applications/Brave Browser.app"; do
   if [ -d "\$B" ]; then
     open -na "\$B" --args --app="\$URL" --user-data-dir="\$ROOT/data/app-window" --window-size=1380,900 \\
-      --no-first-run --no-default-browser-check
+      --no-first-run --no-default-browser-check \\
+      --autoplay-policy=no-user-gesture-required --disable-background-timer-throttling \\
+      --disable-renderer-backgrounding --disable-backgrounding-occluded-windows
     exit 0
   fi
 done

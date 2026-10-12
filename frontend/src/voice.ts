@@ -2,8 +2,8 @@
 //   ElevenLabs (default): mic audio is recorded here, transcribed by Scribe via the backend,
 //   and replies are spoken with an ElevenLabs voice streamed through the backend.
 //   Browser (fallback when no ElevenLabs key): the built-in Web Speech APIs.
-// A "Jarvis" wake word would plug in as another listener; it is not built yet.
 import { synthesize, transcribe } from './api'
+import { trackOutput } from './levels'
 
 export interface Listener {
   start(onPartial: (text: string) => void): Promise<void>
@@ -75,7 +75,8 @@ export class ElevenLabsSpeaker implements Speaker {
     const url = await synthesize(clean.slice(0, 4500), this.abort.signal)
     const a = new Audio(url)
     this.audio = a
-    const done = () => { URL.revokeObjectURL(url); if (this.audio === a) this.audio = null; onEnd() }
+    const untrack = await trackOutput(a)
+    const done = () => { untrack(); URL.revokeObjectURL(url); if (this.audio === a) this.audio = null; onEnd() }
     a.onended = done
     a.onerror = done
     await a.play()

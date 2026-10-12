@@ -32,6 +32,7 @@ export type Settings = {
   memory: { auto_retrieve: boolean; max_items: number }
   hermes: { api_key: string; binary: string }
   browser: { headless: boolean }
+  wake: { enabled: boolean; threshold: number; greeting: string; open_at_login: boolean }
 }
 export type BrowserPolicy = { ask_outside_approved_domains: boolean; always_ask: string[]; risky_words: string[] }
 export type ElevenVoice = { voice_id: string; name: string; category?: string; labels?: Record<string, string>; preview_url?: string }
@@ -71,6 +72,7 @@ export const api = {
   savePhone: (p: PhoneSettings & { auth_token?: string }) => req<{ settings: PhoneSettings; status: PhoneStatus; cloudflared: boolean }>('/api/phone', { method: 'PUT', ...body(p) }),
   testCall: () => req('/api/phone/test-call', { method: 'POST' }),
   testSms: () => req('/api/phone/test-sms', { method: 'POST' }),
+  system: () => req<{ cpu: number; ram: number; disk: number; battery: { percent: number; plugged: boolean } | null; network: boolean; uptime_h: number }>('/api/system'),
   update: () => req<UpdateInfo>('/api/update'),
   checkUpdate: () => req<UpdateInfo>('/api/update/check', { method: 'POST' }),
   applyUpdate: () => req<UpdateInfo>('/api/update/apply', { method: 'POST' }),

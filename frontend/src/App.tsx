@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import Lenis from 'lenis'
 import { api } from './api'
 import type { Status } from './api'
 import { usePoll } from './hooks'
 import { Dot, Icon } from './ui'
 import { ApprovalTray } from './components/ApprovalTray'
-import Overview from './pages/Overview'
+import CommandCenter from './pages/CommandCenter'
+import { JarvisProvider } from './engine'
 import Assistant from './pages/Assistant'
 import MemoryPage from './pages/Memory'
 import Tasks from './pages/Tasks'
@@ -14,7 +16,7 @@ import SettingsPage from './pages/Settings'
 import Setup from './pages/Setup'
 
 const NAV = [
-  { id: 'overview', label: 'Overview', icon: 'overview' },
+  { id: 'overview', label: 'Command Center', icon: 'overview' },
   { id: 'assistant', label: 'Assistant', icon: 'chat' },
   { id: 'memory', label: 'Memory', icon: 'memory' },
   { id: 'tasks', label: 'Tasks', icon: 'tasks' },
@@ -42,6 +44,18 @@ export default function App() {
   }, [])
   const go = (p: PageId) => { location.hash = p; setPage(p) }
 
+  // Lenis smooth scrolling for the page area (off for reduced motion and the chat, which scrolls itself).
+  const scroller = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = scroller.current
+    if (!el || page === 'assistant' || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const lenis = new Lenis({ wrapper: el, content: el.firstElementChild as HTMLElement, smoothWheel: true, lerp: 0.12 })
+    let raf = 0
+    const loop = (t: number) => { lenis.raf(t); raf = requestAnimationFrame(loop) }
+    raf = requestAnimationFrame(loop)
+    return () => { cancelAnimationFrame(raf); lenis.destroy() }
+  }, [page])
+
   const s = status.data
   if (status.error && !s) {
     return (
@@ -59,6 +73,7 @@ export default function App() {
   }
 
   return (
+    <JarvisProvider status={s} onWake={() => go('overview')}>
     <div className="field h-full flex">
       <nav className="w-[220px] shrink-0 border-r border-seam/70 flex flex-col py-5 px-3 max-md:w-[64px]" aria-label="Main">
         <div className="flex items-center gap-2.5 px-2 mb-8">
@@ -104,8 +119,8 @@ export default function App() {
             Emergency stop is on. No actions or automations will run until you resume.
           </div>
         )}
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {page === 'overview' && <Overview status={s} go={go} />}
+        <div ref={scroller} className="flex-1 min-h-0 overflow-y-auto">
+          {page === 'overview' && <CommandCenter go={go} />}
           {page === 'assistant' && <Assistant status={s} />}
           {page === 'memory' && <MemoryPage />}
           {page === 'tasks' && <Tasks />}
@@ -115,6 +130,7 @@ export default function App() {
         </div>
       </main>
     </div>
+    </JarvisProvider>
   )
 }
 

@@ -10,13 +10,14 @@ import secrets
 import signal
 import subprocess
 import sys
+import time
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Optional
 
 import uvicorn
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,7 +27,7 @@ from shared.settings import (BACKEND_HOST, BACKEND_PORT, DATA_DIR, LOG_DIR, ROOT
                              save_permissions)
 
 from . import (actions, agent_client, browser_policy, chat, db, hermes, integrations, memory, phone, scheduler,
-               secrets_store, services, updater, voice)
+               secrets_store, services, updater, voice, wake)
 
 log = logging.getLogger("jarvis.backend")
 brain_override = None  # tests inject a fake brain here
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     services.start()
     task = asyncio.create_task(scheduler.loop())
     upd = asyncio.create_task(_update_loop())
+    asyncio.create_task(_open_window_for_wake())
     yield
     task.cancel()
     upd.cancel()
@@ -177,6 +179,59 @@ async def agent_restart():
     return {"ok": True, "agent": services.agent.info()}
 
 
+# ---------------------------------------------------------------- wake word
+
+LOCAL_ORIGINS = {f"http://127.0.0.1:{BACKEND_PORT}", f"http://localhost:{BACKEND_PORT}",
+                 "http://127.0.0.1:5173", "http://localhost:5173"}
+
+
+@app.websocket("/api/wake/ws")
+async def wake_ws(ws: WebSocket):
+    # WebSockets skip CORS, so only the JARVIS window itself may connect.
+    if ws.headers.get("origin") not in LOCAL_ORIGINS:
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    try:
+        await wake.serve(ws, float(db.get_settings()["wake"].get("threshold", 0.5)))
+    except WebSocketDisconnect:
+        pass
+
+
+@app.get("/api/system")
+async def system_metrics():
+    """Live CPU / memory / disk for the Command Center (read-only, not logged)."""
+    import psutil
+    vm = psutil.virtual_memory()
+    du = psutil.disk_usage(str(Path.home()))
+    bat = psutil.sensors_battery() if hasattr(psutil, "sensors_battery") else None
+    net = psutil.net_if_stats()
+    online = any(s.isup for n, s in net.items() if not n.startswith("lo"))
+    return {"cpu": psutil.cpu_percent(interval=None), "ram": vm.percent, "disk": du.percent,
+            "battery": None if not bat else {"percent": round(bat.percent), "plugged": bat.power_plugged},
+            "network": online, "uptime_h": round((time.time() - psutil.boot_time()) / 3600, 1)}
+
+
+@app.get("/api/wake")
+async def wake_info():
+    return {"available": wake.available(), "listening_windows": wake.STATE["clients"],
+            "last_wake": wake.STATE["last_wake"], "error": wake.STATE["error"]}
+
+
+async def _open_window_for_wake():
+    """At login, open the JARVIS window (in the background) so it can hear 'Hey JARVIS'."""
+    if sys.platform != "darwin" or os.environ.get("JARVIS_NO_SUPERVISOR"):
+        return
+    await asyncio.sleep(25)
+    w = db.get_settings()["wake"]
+    if not (w.get("enabled") and w.get("open_at_login")) or wake.STATE["clients"]:
+        return
+    for app_path in ("/Applications/JARVIS.app", os.path.expanduser("~/Applications/JARVIS.app")):
+        if os.path.isdir(app_path):
+            subprocess.Popen(["open", "-g", app_path])
+            break
+
+
 @app.get("/api/update")
 async def update_info():
     return updater.info()
@@ -212,7 +267,7 @@ async def shutdown():
 
 # ---------------------------------------------------------------- settings / permissions / safety
 
-ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser"}
+ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake"}
 
 
 @app.get("/api/settings")
