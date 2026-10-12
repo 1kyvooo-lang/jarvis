@@ -7,6 +7,7 @@ export type Status = {
   browser: { available: boolean }
   phone: PhoneStatus
   update?: { available: boolean }
+  google?: { client_configured: boolean; connected: boolean; email: string | null }
   emergency_stop: boolean
   user_name: string
   platform: string
@@ -25,6 +26,10 @@ export type AgentTool = { name: string; description: string; input_schema: { pro
 export type Permissions = { approved_apps: string[]; approved_domains: string[]; approved_directories: string[]; approval_required: string[]; disabled_tools: string[]; browser: BrowserPolicy }
 export type PhoneStatus = { enabled: boolean; configured: boolean; public_url: string | null; webhooks: string | null; error: string | null; token_hint: string | null }
 export type UpdateInfo = { repo: string; current: string | null; latest: { sha: string; message: string; date: string | null } | null; available: boolean; checked_at: number | null; error: string | null; running: boolean }
+export type GoogleInfo = { status: { client_configured: boolean; connected: boolean; email: string | null; redirect_uri: string }
+  settings: { client_id: string; email: string; business_hours: { days: number[]; start: string; end: string }; slot_minutes: number; min_notice_hours: number } }
+export type Receptionist = { answer_others: boolean; business_name: string; about: string; booking: boolean; appointment_minutes: number
+  inbox_assistant: boolean; inbox_minutes: number; allow_archive: boolean; approve_by_text: boolean; labels: string[] }
 export type PhoneSettings = { enabled: boolean; account_sid: string; twilio_number: string; owner_number: string; language: string }
 export type Settings = {
   user_name: string; assistant_name: string; emergency_stop: boolean
@@ -32,6 +37,7 @@ export type Settings = {
   memory: { auto_retrieve: boolean; max_items: number }
   hermes: { api_key: string; binary: string }
   browser: { headless: boolean }
+  receptionist: Receptionist
   wake: { enabled: boolean; threshold: number; greeting: string; open_at_login: boolean }
 }
 export type BrowserPolicy = { ask_outside_approved_domains: boolean; always_ask: string[]; risky_words: string[] }
@@ -73,6 +79,9 @@ export const api = {
   testCall: () => req('/api/phone/test-call', { method: 'POST' }),
   testSms: () => req('/api/phone/test-sms', { method: 'POST' }),
   system: () => req<{ cpu: number; ram: number; disk: number; battery: { percent: number; plugged: boolean } | null; network: boolean; uptime_h: number }>('/api/system'),
+  google: () => req<GoogleInfo>('/api/google'),
+  saveGoogle: (g: Partial<GoogleInfo['settings']> & { client_secret?: string }) => req<GoogleInfo>('/api/google', { method: 'PUT', ...body(g) }),
+  disconnectGoogle: () => req<GoogleInfo>('/api/google', { method: 'DELETE' }),
   update: () => req<UpdateInfo>('/api/update'),
   checkUpdate: () => req<UpdateInfo>('/api/update/check', { method: 'POST' }),
   applyUpdate: () => req<UpdateInfo>('/api/update/apply', { method: 'POST' }),

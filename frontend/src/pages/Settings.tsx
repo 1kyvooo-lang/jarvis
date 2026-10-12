@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api } from '../api'
-import type { AgentTool, ElevenVoice, Integration, Permissions, PhoneSettings, Settings, Status, UpdateInfo } from '../api'
+import type { AgentTool, ElevenVoice, GoogleInfo, Integration, Permissions, PhoneSettings, Receptionist, Settings, Status, UpdateInfo } from '../api'
 import { Button, Field, PageHead, Pill, inputCls } from '../ui'
 import { makeVoice } from '../voice'
 
@@ -144,6 +144,10 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
 
       <PhoneSection status={status} onChange={onChange} />
 
+      <GoogleSection />
+      <ReceptionistSection r={s.receptionist} phoneOn={!!status?.phone.configured} googleOn={!!status?.google?.connected}
+        onSave={r => save({ receptionist: r }, 'Receptionist settings saved')} />
+
       <Section title="“Hey JARVIS” wake word">
         <p className="text-sm text-dim mb-4">While the JARVIS window is open (it can be in the background), he listens for “Hey JARVIS” right here on your Mac, then asks what you need and talks with you hands-free. Nothing is recorded or sent anywhere until you’ve said the wake word.</p>
         <div className="grid md:grid-cols-2 gap-4">
@@ -248,6 +252,109 @@ function Section({ title, children, foot }: { title: string; children: ReactNode
       {children}
       {foot && <div className="mt-5">{foot}</div>}
     </section>
+  )
+}
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+function GoogleSection() {
+  const [g, setG] = useState<GoogleInfo | null>(null)
+  const [secret, setSecret] = useState('')
+  const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
+  const [showHow, setShowHow] = useState(false)
+  useEffect(() => { api.google().then(setG).catch(() => {}) }, [])
+  if (!g) return null
+  const st = g.status, set = g.settings
+  const upd = (p: Partial<GoogleInfo['settings']>) => setG({ ...g, settings: { ...set, ...p } })
+  const saveAll = async () => {
+    setMsg(null)
+    try { setG(await api.saveGoogle({ ...set, ...(secret ? { client_secret: secret } : {}) })); setSecret(''); setMsg({ text: 'Saved' }) }
+    catch (e) { setMsg({ text: (e as Error).message, bad: true }) }
+  }
+  const bh = set.business_hours
+  return (
+    <Section title="Google (Gmail + Calendar)">
+      <div className="flex items-center gap-2 text-sm mb-4">
+        <span className={`size-2 rounded-full ${st.connected ? 'bg-ok' : 'bg-faint'}`} aria-hidden />
+        {st.connected ? <span>Connected as <b>{st.email || 'your account'}</b></span> : <span className="text-dim">Not connected</span>}
+      </div>
+      <p className="text-sm text-dim mb-3">JARVIS reads, sorts and drafts email, checks your calendar and books appointments. Sending email, and invites to other people, always waits for your OK. He can’t delete mail.</p>
+      <button className="text-sm text-arc hover:underline mb-3" onClick={() => setShowHow(!showHow)} aria-expanded={showHow}>{showHow ? 'Hide the steps' : 'How to get a Google client ID (5 minutes, once)'}</button>
+      {showHow && (
+        <ol className="text-sm text-dim list-decimal pl-5 space-y-1.5 mb-4">
+          <li>Open <b>console.cloud.google.com</b>, create a project (any name, e.g. “JARVIS”).</li>
+          <li><b>APIs &amp; Services → Library</b>: enable <b>Gmail API</b> and <b>Google Calendar API</b>.</li>
+          <li><b>OAuth consent screen</b>: External, app name “JARVIS”, your email; add yourself as a test user. Then click <b>Publish app</b> (so access doesn’t expire after 7 days; Google will show an “unverified app” warning for your own app — that’s expected).</li>
+          <li><b>Credentials → Create credentials → OAuth client ID → Desktop app</b>. Copy the <b>Client ID</b> and <b>Client secret</b> here.</li>
+          <li>Click <b>Save</b>, then <b>Connect Google</b> and allow access.</li>
+        </ol>
+      )}
+      <div className="grid md:grid-cols-2 gap-4">
+        <Field label="Client ID"><input className={inputCls} placeholder="….apps.googleusercontent.com" value={set.client_id} onChange={e => upd({ client_id: e.target.value.trim() })} /></Field>
+        <Field label="Client secret" hint={st.client_configured ? 'Saved in Keychain. Paste to replace.' : undefined}>
+          <input className={inputCls} type="password" autoComplete="off" placeholder={st.client_configured ? '••••••••' : 'GOCSPX-…'} value={secret} onChange={e => setSecret(e.target.value)} /></Field>
+      </div>
+      <h3 className="text-sm text-ink mt-5 mb-2">Working hours (for appointments)</h3>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {DAYS.map((d, i) => {
+          const on = bh.days.includes(i + 1)
+          return <button key={d} aria-pressed={on} onClick={() => upd({ business_hours: { ...bh, days: on ? bh.days.filter(x => x !== i + 1) : [...bh.days, i + 1].sort() } })}
+            className={`h-8 px-3 rounded-lg border text-[13px] ${on ? 'border-arc text-arc bg-arc/10' : 'border-seam text-dim'}`}>{d}</button>
+        })}
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Field label="From"><input type="time" className={inputCls} value={bh.start} onChange={e => upd({ business_hours: { ...bh, start: e.target.value } })} /></Field>
+        <Field label="Until"><input type="time" className={inputCls} value={bh.end} onChange={e => upd({ business_hours: { ...bh, end: e.target.value } })} /></Field>
+        <Field label="Slot every (min)"><input type="number" min={10} max={240} className={inputCls} value={set.slot_minutes} onChange={e => upd({ slot_minutes: Number(e.target.value) })} /></Field>
+        <Field label="Min. notice (hours)"><input type="number" min={0} max={168} className={inputCls} value={set.min_notice_hours} onChange={e => upd({ min_notice_hours: Number(e.target.value) })} /></Field>
+      </div>
+      <div className="flex flex-wrap gap-2 mt-5">
+        <Button tone="primary" onClick={saveAll}>Save</Button>
+        <Button disabled={!st.client_configured && !(set.client_id && secret)} onClick={async () => { await saveAll(); location.href = '/api/google/connect' }}>{st.connected ? 'Reconnect Google' : 'Connect Google'}</Button>
+        {st.connected && <Button tone="danger" onClick={async () => setG(await api.disconnectGoogle())}>Disconnect</Button>}
+      </div>
+      {msg && <p className={`text-sm mt-3 ${msg.bad ? 'text-fault' : 'text-ok'}`} role="status">{msg.text}</p>}
+    </Section>
+  )
+}
+
+function ReceptionistSection({ r: initial, phoneOn, googleOn, onSave }: { r: Receptionist; phoneOn: boolean; googleOn: boolean; onSave: (r: Receptionist) => void }) {
+  const [r, setR] = useState(initial)
+  useEffect(() => setR(initial), [initial])
+  const chk = (key: keyof Receptionist, label: string, hint?: string) => (
+    <label className="flex items-start gap-3 text-sm">
+      <input type="checkbox" className="accent-[#3CE7FF] size-4 mt-0.5" checked={!!r[key]} onChange={e => setR({ ...r, [key]: e.target.checked })} />
+      <span>{label}{hint && <span className="block text-[13px] text-faint">{hint}</span>}</span>
+    </label>
+  )
+  return (
+    <Section title="Receptionist & inbox assistant">
+      <p className="text-sm text-dim mb-4">
+        When other people call or text your Twilio number, a separate, locked-down assistant answers for you. It can check your free slots, book
+        appointments in your working hours and take messages, and nothing else: it can't see your email, files, memory or chats. You get a text for every booking and message.
+        {!phoneOn && <span className="text-amber"> Set up the phone line (Phone section) first.</span>}
+      </p>
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        {chk('answer_others', 'Answer calls and texts from other people')}
+        {chk('booking', 'Let it book appointments', googleOn ? 'Into free slots in your working hours (Google Calendar)' : 'Needs Google connected')}
+        {chk('approve_by_text', 'Text me when something needs my OK', 'Reply YES 12 or NO 12 from your phone')}
+        <Field label="Appointment length (min)"><input type="number" min={10} max={180} className={inputCls} value={r.appointment_minutes} onChange={e => setR({ ...r, appointment_minutes: Number(e.target.value) })} /></Field>
+        <Field label="Business or your name (how it introduces itself)"><input className={inputCls} placeholder="e.g. Kyvo Studio" value={r.business_name} onChange={e => setR({ ...r, business_name: e.target.value })} /></Field>
+      </div>
+      <Field label="What it can tell callers" hint="Services, prices, address, opening hours — anything you're happy to share. Never put private info here.">
+        <textarea rows={3} className={inputCls + ' h-auto py-2'} value={r.about} onChange={e => setR({ ...r, about: e.target.value })} />
+      </Field>
+      <h3 className="text-sm text-ink mt-6 mb-2">Inbox assistant (Gmail)</h3>
+      <p className="text-sm text-dim mb-3">Every few minutes it sorts new email into JARVIS labels and drafts replies to real people. Drafts are only sent after you approve. {!googleOn && <span className="text-amber">Connect Google first.</span>}</p>
+      <div className="grid md:grid-cols-2 gap-4">
+        {chk('inbox_assistant', 'Sort new email and draft replies')}
+        {chk('allow_archive', 'Allow archiving newsletters & receipts')}
+        <Field label="Check every (minutes)"><input type="number" min={5} max={240} className={inputCls} value={r.inbox_minutes} onChange={e => setR({ ...r, inbox_minutes: Number(e.target.value) })} /></Field>
+        <Field label="Labels (comma-separated)"><input className={inputCls} value={r.labels.join(', ')} onChange={e => setR({ ...r, labels: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })} /></Field>
+      </div>
+      <p className="text-[13px] text-faint mt-3">Each email it processes uses your AI model (a few cents per email, depending on the model).</p>
+      <div className="mt-4"><Button tone="primary" onClick={() => onSave(r)}>Save</Button></div>
+    </Section>
   )
 }
 
