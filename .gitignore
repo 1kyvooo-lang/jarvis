@@ -1,0 +1,21 @@
+# secrets & local state
+.env
+.env.*
+!.env.example
+data/
+config/permissions.json
+*.pem
+*.key
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# node
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+mcp-runtime/node_modules/
+*.zip

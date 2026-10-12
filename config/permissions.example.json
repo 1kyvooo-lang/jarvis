@@ -1,0 +1,72 @@
+{
+  "approved_apps": [
+    "Safari",
+    "Notes",
+    "Calendar",
+    "Reminders",
+    "Music",
+    "Finder",
+    "Mail",
+    "Messages",
+    "Visual Studio Code"
+  ],
+  "approved_domains": [
+    "google.com",
+    "github.com",
+    "anthropic.com",
+    "claude.ai",
+    "wikipedia.org",
+    "news.ycombinator.com",
+    "tradingview.com",
+    "render.com",
+    "supabase.com"
+  ],
+  "approved_directories": [
+    "~/Documents",
+    "~/Desktop",
+    "~/Downloads"
+  ],
+  "approval_required": [
+    "open_app",
+    "read_text_file"
+  ],
+  "disabled_tools": [],
+  "browser": {
+    "ask_outside_approved_domains": true,
+    "always_ask": [
+      "browser_fill_form",
+      "browser_file_upload",
+      "browser_drop",
+      "browser_evaluate",
+      "browser_run_code_unsafe",
+      "browser_handle_dialog"
+    ],
+    "risky_words": [
+      "buy",
+      "purchase",
+      "pay",
+      "checkout",
+      "check out",
+      "order",
+      "place order",
+      "submit",
+      "send",
+      "post",
+      "publish",
+      "delete",
+      "remove",
+      "confirm",
+      "subscribe",
+      "sign up",
+      "register",
+      "transfer",
+      "book",
+      "reserve",
+      "donate",
+      "unsubscribe",
+      "cancel",
+      "log out",
+      "sign out"
+    ]
+  }
+}

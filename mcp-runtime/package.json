@@ -1,0 +1,8 @@
+{
+  "name": "jarvis-mcp-runtime",
+  "private": true,
+  "description": "Pinned Playwright MCP server used by JARVIS (via Hermes)",
+  "dependencies": {
+    "@playwright/mcp": "0.0.83"
+  }
+}

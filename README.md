@@ -1,0 +1,144 @@
+# JARVIS for Mac
+
+Your own JARVIS: a Mac app you talk to by voice or text.
+
+- **Hermes Agent** (Nous Research) is the brain: it plans, remembers and uses tools, on the model you choose (Nous Portal, OpenRouter, …).
+- **ElevenLabs** is the voice: Scribe understands you, and replies are spoken in an ElevenLabs voice.
+- **Playwright MCP** is the browser: JARVIS can read and use websites in its own Chrome window.
+- **The Mac agent** opens apps, finds and reads files in folders you approve, checks system status and sends notifications.
+
+Anything consequential waits for you to click **Approve**: buying, sending, submitting forms, uploading, opening an unapproved site, opening apps, reading files. The **Emergency stop** halts everything instantly.
+
+## Install (once)
+
+Easiest: open **Terminal**, paste this and press Enter:
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/1kyvooo-lang/jarvis/main/scripts/get.sh)
+```
+Or from the zip:
+
+1. Unzip `jarvis.zip`.
+2. Double-click **`Install JARVIS.command`**.
+   If macOS says it can't verify the developer, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or open Terminal and paste:
+   ```bash
+   bash ~/Downloads/jarvis/scripts/install_mac.sh
+   ```
+3. Follow the prompts. The installer asks before installing anything:
+   - Homebrew, Python, Node and `uv`, only if they're missing.
+   - **Hermes Agent**, via its official installer, plus the two Hermes features JARVIS uses (its API server and MCP support).
+   - **Hermes's model picker.** Choose Nous Portal or OpenRouter and sign in.
+   - JARVIS itself, which goes to `~/Library/Application Support/JARVIS`, so you can delete the download afterwards.
+   - **JARVIS.app**, in your Applications folder.
+   - Optionally, starting JARVIS at login (recommended).
+4. JARVIS opens with a short setup checklist. Paste your **ElevenLabs API key** (from elevenlabs.io → API keys) and allow the microphone when asked.
+
+After that, open **JARVIS** from Applications, the Dock or Spotlight like any other app.
+
+## Using it
+
+- **Talk:** on the Assistant page, tap the mic, speak, and tap again. You can also hold the mic while you speak and let go. Questions you ask by voice get spoken answers.
+- **Type:** Enter sends.
+- **Approve:** requests appear in an amber bar at the top of every page. The action runs the moment you click Approve. If nobody answers within 4 minutes, it doesn't run.
+- **Stop:** the stop button ends the current reply. **Emergency stop**, in the left rail, halts all actions and automations until you resume.
+- **Quit:** Settings → Startup and quitting → Quit JARVIS.
+
+## Call mode (talk like a phone call, in the app)
+
+On the Assistant page click **Call**. Just talk: JARVIS hears when you stop, answers out loud, and listens again.
+Talk over him to interrupt. Say "goodbye" or click **End call** to stop. The conversation also appears as text.
+
+## Phone line (Twilio): call or text JARVIS from your phone
+
+1. In the Twilio Console, copy your **Account SID** and **Auth Token**, and note your Twilio phone number.
+2. In JARVIS go to **Settings → Phone (Twilio)**, fill in those plus **your mobile number**, tick **Phone line on**, and click **Save**.
+3. JARVIS opens a secure Cloudflare tunnel and points your Twilio number at this Mac automatically. When it says **Online**,
+   try **Call me now** and **Send test text**.
+
+- Call or text your Twilio number and JARVIS answers. He can also call or text you ("call me when it's done").
+- Only your own mobile number gets through. Everyone else hears "not available", and their texts are ignored.
+- If an action needs approval during a call, he asks and you answer "yes" or "no".
+- It works while your Mac is on and awake. A sleeping or offline Mac means no answer.
+- Costs are Twilio's (number rental plus per-minute and per-SMS), plus ElevenLabs characters for his voice.
+- Every request from Twilio is checked against your Auth Token signature. Only the `/twilio` routes are reachable from the internet,
+  and they run on a separate port. The dashboard, Hermes and the Mac agent stay local only.
+
+## What JARVIS can do (and what asks first)
+
+| Area | Without asking | Asks you first |
+|---|---|---|
+| Browser (Playwright MCP) | Open approved sites, read pages, screenshots, ordinary clicks and typing | Unapproved sites; clicks on buttons like buy, pay, send, submit, delete, confirm; filling forms; uploads; running page scripts; accepting dialogs; typing into password or card fields |
+| Mac | Time, system status and info, search file names in approved folders, notifications, open approved websites | Open apps (approved list only), read a file (approved folders only) |
+| Tasks and memory | To-dos, save and search your notes, propose automations | Proposed automations only run after you approve them on the Tasks page |
+
+You can change all of this in **Settings**: approved apps, sites and folders, which Mac tools ask first, which browser actions always ask, and the click words that trigger a check.
+
+Some things are always blocked: no shell, terminal or code-execution tools are given to Hermes through JARVIS. Files like `.env`, keys, `.ssh` and Keychains can't be read even inside approved folders. `file://`, `javascript:` and similar URLs are refused.
+
+## How it fits together
+
+```
+JARVIS.app ─ opens ─▶ Dashboard (127.0.0.1:8000) ◀── voice ──▶ ElevenLabs (Scribe + TTS)
+                         │  JARVIS backend: chat, approvals, memory, tasks, activity log
+                         │  starts & supervises ▼
+                         ├── Hermes gateway (API server on 127.0.0.1:8642) ── your model (Nous / OpenRouter)
+                         │        │ MCP
+                         │        ▼
+                         │    jarvis MCP server ── every call goes through JARVIS's approval gate
+                         │        ├── Mac agent (127.0.0.1:8765): apps, files, system, notifications
+                         │        └── Playwright MCP: Chrome window with its own profile
+                         └── Mac agent (kept alive)
+```
+
+- Hermes only gets these tools through its **API server** surface: `web`, `todo`, `memory`, `session_search`, `skills` and the `jarvis` MCP server. Your normal `hermes` command-line setup isn't changed.
+- JARVIS adds two entries to `~/.hermes/config.yaml`: `mcp_servers.jarvis` and `platform_toolsets.api_server`. Your original config is backed up first as `config.yaml.before-jarvis`, and comments and other settings are kept.
+- Hermes's API server is protected by a key JARVIS generates. Everything listens on 127.0.0.1 only.
+- Keys are stored in your **macOS Keychain**. The browser never sees them.
+
+## Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| macOS blocks the installer | System Settings → Privacy & Security → **Open Anyway** (or run the Terminal command above) |
+| "Hermes isn't running" | Settings → Hermes → **Restart Hermes**. If it keeps failing, the message shows Hermes's last log lines |
+| "rejected JARVIS's key" | Another Hermes gateway is already running. Stop it with `hermes gateway stop`, or paste its `API_SERVER_KEY` in Settings → Hermes → Advanced |
+| Hermes errors about the model or provider | Settings → Hermes → **Choose AI model**. This opens Hermes's own picker in Terminal |
+| Browser actions say Playwright isn't installed | Run the installer again (it repairs) |
+| No voice / "Add your ElevenLabs key" | Settings → Voice → paste your key |
+| Mic doesn't work | Allow the mic when the JARVIS window asks, and in System Settings → Privacy & Security → Microphone |
+| Opening apps or notifications fail | macOS may ask to let JARVIS (Python) control apps or send notifications. Allow it in System Settings |
+| Something else | Logs are in `~/Library/Application Support/JARVIS/data/logs/` (`backend.log`, `hermes.out`, `mcp.log`, `agent.log`) |
+
+**Update:** Settings → Updates → **Update now**. JARVIS checks GitHub for new versions every few hours and shows a dot on Settings when one is ready. The update installs and restarts JARVIS by itself, and keeps your settings, history, memory and keys. Details are in `data/logs/update.log`.
+
+**Repair:** run the Terminal command above (or `Install JARVIS.command`) again. It keeps your settings, history and memory.
+
+**Uninstall:** double-click `Uninstall JARVIS.command`. It removes the app, the login item, JARVIS's data and its Hermes config entries. Hermes itself is left installed.
+
+## Not built yet
+
+- A hands-free "Jarvis" wake word. Push-to-talk works today.
+- Phone calls, calendar and email, smart home, and market data. These have reserved interfaces and show as "awaiting configuration". Hermes can also connect messaging apps itself (`hermes gateway setup`).
+
+## For developers
+
+```bash
+./scripts/setup.sh         # venv, packages, Playwright MCP, dashboard build, Hermes extras, tests
+./scripts/dev.sh           # backend (+ Hermes + agent) and hot-reloading dashboard on :5173
+./scripts/dev.sh --built   # same, dashboard served on :8000
+./scripts/stop.sh
+.venv/bin/python -m pytest -q
+```
+
+```
+agent/        Mac agent: tool registry, allowlists, path safety, auth, idempotency, kill switch
+backend/      main.py (API), chat.py (Hermes turns), hermes.py (config, client, events),
+              actions.py (approval gate), browser_policy.py, voice.py (ElevenLabs),
+              services.py (supervises Hermes + agent), memory.py, scheduler.py, db.py
+jarvis_mcp/   MCP server Hermes connects to (Mac tools + gated Playwright MCP proxy)
+frontend/     React + TypeScript + Tailwind dashboard
+mcp-runtime/  pinned @playwright/mcp
+macos/        app icon
+scripts/      install_mac.sh · build_app.sh · launchagent.sh · hermes_extras.sh · dev/setup/stop
+```
+
+To add a Mac tool, add a decorated function in `agent/tools.py`. It shows up in Hermes, the dashboard and Settings automatically. Set `sensitive=True` to make it always ask first.
