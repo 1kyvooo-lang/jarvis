@@ -254,6 +254,7 @@ async def put_permissions(body: PermissionsIn):
     for dom in data["approved_domains"]:
         if "/" in dom or " " in dom or not dom.strip():
             raise HTTPException(400, f"'{dom}' should be a bare domain like example.com")
+    data["migrations"] = load_permissions().get("migrations", [])  # keep one-time upgrades applied
     save_permissions(data)
     db.log_activity("Permissions updated", "info", tool="settings", source="user")
     return load_permissions()

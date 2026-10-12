@@ -1,13 +1,17 @@
 {
   "approved_apps": [
     "Safari",
-    "Notes",
-    "Calendar",
-    "Reminders",
-    "Music",
-    "Finder",
+    "Google Chrome",
     "Mail",
+    "Calendar",
+    "Notes",
+    "Reminders",
     "Messages",
+    "FaceTime",
+    "Photos",
+    "Music",
+    "Spotify",
+    "Finder",
     "Visual Studio Code"
   ],
   "approved_domains": [
@@ -19,7 +23,10 @@
     "news.ycombinator.com",
     "tradingview.com",
     "render.com",
-    "supabase.com"
+    "supabase.com",
+    "youtube.com",
+    "spotify.com",
+    "music.apple.com"
   ],
   "approved_directories": [
     "~/Documents",
@@ -27,7 +34,6 @@
     "~/Downloads"
   ],
   "approval_required": [
-    "open_app",
     "read_text_file"
   ],
   "disabled_tools": [],
@@ -68,5 +74,8 @@
       "log out",
       "sign out"
     ]
-  }
+  },
+  "migrations": [
+    "media-apps-2026-10"
+  ]
 }

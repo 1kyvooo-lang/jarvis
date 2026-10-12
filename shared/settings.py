@@ -92,8 +92,30 @@ def load_permissions() -> dict:
                                     "browser_run_code_unsafe", "browser_handle_dialog"])
         b.setdefault("risky_words", ["buy", "purchase", "pay", "checkout", "order", "submit", "send", "post", "delete",
                                      "confirm", "subscribe", "sign up", "transfer", "book"])
+        if _migrate_permissions(data):
+            save_permissions(data)
+            mtime = path.stat().st_mtime
         _perm_cache.update(mtime=mtime, data=data)
     return json.loads(json.dumps(_perm_cache["data"]))  # defensive copy
+
+
+def _migrate_permissions(data: dict) -> bool:
+    """One-time additions for new features. Each runs once, so the user's later edits stick."""
+    done = data.setdefault("migrations", [])
+    changed = False
+    if "media-apps-2026-10" not in done:
+        for app in ["Spotify", "Music", "Mail", "Safari", "Google Chrome", "Calendar", "Notes", "Messages",
+                    "FaceTime", "Photos", "Finder", "Reminders"]:
+            if app.lower() not in {a.lower() for a in data["approved_apps"]}:
+                data["approved_apps"].append(app)
+        for d in ["youtube.com", "spotify.com", "music.apple.com", "google.com"]:
+            if d not in data["approved_domains"]:
+                data["approved_domains"].append(d)
+        # Opening an app from the approved list no longer needs a click.
+        data["approval_required"] = [t for t in data["approval_required"] if t != "open_app"]
+        done.append("media-apps-2026-10")
+        changed = True
+    return changed
 
 
 def save_permissions(data: dict) -> None:

@@ -186,3 +186,78 @@ def notify(args, perms):
     _run(["osascript", "-e", script, args.get("title") or "JARVIS", args["message"]])
     return {"notified": True}
 
+
+
+# ---------------------------------------------------------------- media and quick actions
+
+def _osascript(script: str, *argv: str) -> str:
+    # Values are passed as argv, never spliced into the AppleScript source.
+    return _run(["osascript", "-e", script, *argv])
+
+
+MEDIA_APPS = {"spotify": "Spotify", "music": "Music", "apple music": "Music"}
+MEDIA_ACTIONS = {"play": "play", "pause": "pause", "toggle": "playpause", "next": "next track",
+                 "previous": "previous track"}
+
+
+@tool(name="media_control", category="apps", mac_only=True,
+      description="Control music playback in Spotify or Apple Music: play, pause, toggle, next, previous, or now_playing "
+                  "(what's playing). Opens the app if needed.",
+      input_schema={"properties": {
+          "app": {"type": "string", "enum": ["Spotify", "Music"]},
+          "action": {"type": "string", "enum": ["play", "pause", "toggle", "next", "previous", "now_playing"]}},
+          "required": ["action"]})
+def media_control(args, perms):
+    _require_mac()
+    app = MEDIA_APPS.get((args.get("app") or "Spotify").lower(), "Spotify")
+    check_app(app, perms)
+    action = args["action"]
+    if action == "now_playing":
+        script = ('on run argv\n tell application (item 1 of argv)\n if player state is playing then\n'
+                  '  return (name of current track) & " — " & (artist of current track)\n'
+                  ' else\n  return "nothing playing"\n end if\n end tell\nend run')
+        return {"app": app, "now_playing": _osascript(script, app)}
+    verb = MEDIA_ACTIONS[action]
+    _osascript(f'on run argv\n tell application (item 1 of argv) to {verb}\nend run', app)
+    return {"app": app, "done": action}
+
+
+@tool(name="spotify_search", category="apps", mac_only=True,
+      description="Open Spotify on the Mac showing search results for a song, artist, album or playlist "
+                  "(the user picks what to play; use media_control to resume or skip).",
+      input_schema={"properties": {"query": {"type": "string", "minLength": 1, "maxLength": 200}}, "required": ["query"]})
+def spotify_search(args, perms):
+    _require_mac()
+    check_app("Spotify", perms)
+    from urllib.parse import quote
+    _run(["open", "spotify:search:" + quote(args["query"])])
+    return {"opened": "Spotify", "search": args["query"]}
+
+
+@tool(name="youtube_search", category="browser", mac_only=True,
+      description="Open YouTube in the user's default browser with search results for a query, or a specific YouTube video URL.",
+      input_schema={"properties": {"query": {"type": "string", "minLength": 1, "maxLength": 300}}, "required": ["query"]})
+def youtube_search(args, perms):
+    _require_mac()
+    from urllib.parse import quote_plus, urlparse
+    q = args["query"].strip()
+    host = (urlparse(q).hostname or "").lower()
+    if host in ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"):
+        url = q
+    else:
+        url = "https://www.youtube.com/results?search_query=" + quote_plus(q)
+    _run(["open", url])
+    return {"opened": url}
+
+
+@tool(name="set_volume", category="system", mac_only=True,
+      description="Set the Mac's output volume (0–100), or mute/unmute.",
+      input_schema={"properties": {"level": {"type": "integer", "minimum": 0, "maximum": 100},
+                                   "mute": {"type": "boolean"}}})
+def set_volume(args, perms):
+    _require_mac()
+    if "mute" in args:
+        _run(["osascript", "-e", f"set volume output muted {'true' if args['mute'] else 'false'}"])
+    if "level" in args:
+        _run(["osascript", "-e", f"set volume output volume {int(args['level'])}"])
+    return {"ok": True, **args}
