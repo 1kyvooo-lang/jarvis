@@ -28,7 +28,7 @@ from shared.settings import (BACKEND_HOST, BACKEND_PORT, DATA_DIR, LOG_DIR, ROOT
 
 from . import (actions, agent_client, browser_policy, chat, db, hermes, integrations, memory, phone, scheduler,
                secrets_store, services, updater, voice, wake)
-from . import google, public, routines
+from . import backup, google, public, routines
 
 log = logging.getLogger("jarvis.backend")
 
@@ -56,6 +56,7 @@ async def lifespan(app: FastAPI):
     upd = asyncio.create_task(_update_loop())
     inbox = asyncio.create_task(public.inbox_loop()) if not os.environ.get("JARVIS_NO_SUPERVISOR") else None
     rout = asyncio.create_task(routines.loop()) if not os.environ.get("JARVIS_NO_SUPERVISOR") else None
+    bak = asyncio.create_task(backup.loop()) if not os.environ.get("JARVIS_NO_SUPERVISOR") else None
     asyncio.create_task(_open_window_for_wake())
     yield
     task.cancel()
@@ -64,6 +65,8 @@ async def lifespan(app: FastAPI):
         inbox.cancel()
     if rout:
         rout.cancel()
+    if bak:
+        bak.cancel()
     services.stop_all()
 
 
@@ -332,6 +335,27 @@ async def briefing_now():
         return await routines.send_briefing()
     except Exception as e:
         raise HTTPException(502, f"Couldn't send the briefing: {e}")
+
+
+# ---------------------------------------------------------------- backups
+
+@app.get("/api/backups")
+async def backups_list():
+    return {"backups": backup.listing(), "icloud": str(backup.icloud_dir() or ""),
+            "last": (db.get_settings().get("backup") or {}).get("last")}
+
+
+@app.post("/api/backups")
+async def backups_create():
+    return await asyncio.to_thread(backup.create, "manual")
+
+
+@app.post("/api/backups/{name}/restore")
+async def backups_restore(name: str):
+    try:
+        return await asyncio.to_thread(backup.restore, name)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/system")

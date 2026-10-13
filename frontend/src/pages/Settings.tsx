@@ -270,6 +270,8 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
         <p className="text-[13px] text-faint mt-3">Hermes also keeps its own long-term memory, managed by Hermes.</p>
       </Section>
 
+      <BackupSection />
+
       <Section title="Startup and quitting">
         <p className="text-sm text-dim mb-3">The installer can start JARVIS at login so it’s always ready; open the JARVIS app any time to bring the window back. To turn login start on or off, run in Terminal from the JARVIS folder:</p>
         <pre className="bg-black border border-seam rounded-lg p-3 text-sm text-arc mb-4">./scripts/launchagent.sh install     # start at login{'\n'}./scripts/launchagent.sh uninstall   # don’t</pre>
@@ -409,6 +411,36 @@ function ReceptionistSection({ r: initial, phoneOn, googleOn, onSave }: { r: Rec
       </div>
       <p className="text-[13px] text-faint mt-3">Each email it processes uses your AI model (a few cents per email, depending on the model).</p>
       <div className="mt-4"><Button tone="primary" onClick={() => onSave(r)}>Save</Button></div>
+    </Section>
+  )
+}
+
+function BackupSection() {
+  const [b, setB] = useState<Awaited<ReturnType<typeof api.backups>> | null>(null)
+  const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = () => api.backups().then(setB).catch(() => {})
+  useEffect(() => { load() }, [])
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    setBusy(true); setMsg(null)
+    try { await fn(); setMsg({ text: ok }); load() } catch (e) { setMsg({ text: (e as Error).message, bad: true }) } finally { setBusy(false) }
+  }
+  return (
+    <Section title="Backups">
+      <p className="text-sm text-dim mb-3">Every day JARVIS saves his memory, chats, tasks, reminders and settings (kept for 14 days){b?.icloud ? ', with a copy in iCloud Drive → JARVIS Backups' : ''}. Your keys stay in the Keychain and are never in a backup.</p>
+      <p className="text-[13px] text-faint mb-3">Last backup: {b?.last ? new Date(b.last).toLocaleString() : 'not yet'}</p>
+      <Button disabled={busy} onClick={() => run(api.backupNow, 'Backup made')}>{busy ? 'Working…' : 'Back up now'}</Button>
+      {!!b?.backups.length && (
+        <ul className="mt-4 divide-y divide-seam/60 text-sm">
+          {b.backups.slice(0, 7).map(x => (
+            <li key={x.file} className="py-2 flex items-center gap-3">
+              <span className="flex-1">{new Date(x.made).toLocaleString()} <span className="text-faint">· {Math.max(1, Math.round(x.size / 1024))} KB</span></span>
+              <Button size="sm" disabled={busy} onClick={() => { if (confirm('Restore this backup? Current memory, chats and settings are replaced (a safety backup is made first).')) run(() => api.restoreBackup(x.file), 'Restored — reload the page') }}>Restore</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {msg && <p className={`text-sm mt-3 ${msg.bad ? 'text-fault' : 'text-ok'}`} role="status">{msg.text}</p>}
     </Section>
   )
 }
