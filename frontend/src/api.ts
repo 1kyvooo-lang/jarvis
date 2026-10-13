@@ -26,7 +26,7 @@ export type AgentTool = { name: string; description: string; input_schema: { pro
 export type Permissions = { approved_apps: string[]; approved_domains: string[]; approved_directories: string[]; approval_required: string[]; disabled_tools: string[]; browser: BrowserPolicy; obsidian_vault?: string }
 export type PhoneStatus = { enabled: boolean; configured: boolean; public_url: string | null; webhooks: string | null; error: string | null; token_hint: string | null }
 export type UpdateInfo = { repo: string; current: string | null; running_version?: string | null; auto?: boolean; latest: { sha: string; message: string; date: string | null } | null; available: boolean; checked_at: number | null; error: string | null; running: boolean }
-export type GoogleInfo = { status: { client_configured: boolean; connected: boolean; email: string | null; redirect_uri: string }
+export type GoogleInfo = { status: { client_configured: boolean; connected: boolean; email: string | null; redirect_uri: string; provider?: string | null; mac?: boolean }
   settings: { client_id: string; email: string; business_hours: { days: number[]; start: string; end: string }; slot_minutes: number; min_notice_hours: number } }
 export type Receptionist = { answer_others: boolean; business_name: string; about: string; booking: boolean; appointment_minutes: number
   inbox_assistant: boolean; inbox_minutes: number; allow_archive: boolean; approve_by_text: boolean; labels: string[] }
@@ -110,6 +110,9 @@ export const api = {
   system: () => req<{ cpu: number; ram: number; disk: number; battery: { percent: number; plugged: boolean } | null; network: boolean; uptime_h: number }>('/api/system'),
   google: () => req<GoogleInfo>('/api/google'),
   saveGoogle: (g: Partial<GoogleInfo['settings']> & { client_secret?: string }) => req<GoogleInfo>('/api/google', { method: 'PUT', ...body(g) }),
+  useMacAccounts: (mac: boolean) => req<GoogleInfo>('/api/mailcal', { method: 'PUT', ...body({ mac }) }),
+  openInternetAccounts: () => req('/api/mailcal/open-accounts', { method: 'POST' }),
+  testMailcal: () => req<{ provider: string | null; recent_emails?: string[]; events_today?: number; email_error?: string; calendar_error?: string }>('/api/mailcal/test', { method: 'POST' }),
   disconnectGoogle: () => req<GoogleInfo>('/api/google', { method: 'DELETE' }),
   reminders: () => req<Reminder[]>('/api/reminders'),
   addReminder: (r: { text: string; at: string; via: string }) => req('/api/reminders', { method: 'POST', ...body(r) }),

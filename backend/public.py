@@ -23,7 +23,7 @@ import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from . import actions, db, google
+from . import actions, db, mailcal
 
 log = logging.getLogger("jarvis.public")
 TICKETS: dict[str, dict] = {}
@@ -113,32 +113,32 @@ async def run(tool: str, args: dict) -> Any:
     t = _ticket(args)
     r = settings()
     if tool == "check_availability":
-        if not google.connected():
+        if not mailcal.connected():
             raise RuntimeError("Booking isn't available right now; offer to take a message instead.")
-        res = await google.free_slots(args.get("from_date"), args.get("days", 5),
+        res = await mailcal.free_slots(args.get("from_date"), args.get("days", 5),
                                       args.get("duration_minutes") or r.get("appointment_minutes", 30), limit=8)
         return {"timezone": res["timezone"], "slots": [{"start": s["start"], "label": s["label"]} for s in res["slots"]]}
 
     if tool == "book_appointment":
-        if not (r.get("booking", True) and google.connected()):
+        if not (r.get("booking", True) and mailcal.connected()):
             raise RuntimeError("Booking isn't available; take a message instead.")
         if t["bookings"] >= 2:
             raise RuntimeError("Only two bookings per conversation. Take a message for anything else.")
-        tz = ZoneInfo(await google.timezone())
+        tz = ZoneInfo(await mailcal.timezone())
         start = dt.datetime.fromisoformat(args["start"].replace("Z", "+00:00"))
         start = start if start.tzinfo else start.replace(tzinfo=tz)
         dur = int(args.get("duration_minutes") or r.get("appointment_minutes", 30))
         end = start + dt.timedelta(minutes=dur)
-        if start < dt.datetime.now(tz) + dt.timedelta(hours=google.hours()["min_notice_hours"]):
+        if start < dt.datetime.now(tz) + dt.timedelta(hours=mailcal.hours()["min_notice_hours"]):
             raise RuntimeError("That time is too soon or in the past. Offer another slot.")
-        if not google.within_hours(start.astimezone(tz), end.astimezone(tz)):
+        if not mailcal.within_hours(start.astimezone(tz), end.astimezone(tz)):
             raise RuntimeError("That's outside working hours. Use check_availability.")
-        if not await google.is_free(start, end):
+        if not await mailcal.is_free(start, end):
             raise RuntimeError("That slot was just taken. Check availability again.")
         name = (args.get("name") or "").strip()[:100]
         contact = t.get("phone") or t.get("email") or ""
         desc = f"Booked by JARVIS ({t['channel']}).\nName: {name}\nContact: {contact}\nReason: {args.get('reason', '')}"
-        ev = await google.create_event(f"Appointment: {name or contact}", start.isoformat(), end.isoformat(), desc)
+        ev = await mailcal.create_event(f"Appointment: {name or contact}", start.isoformat(), end.isoformat(), desc)
         t["bookings"] += 1
         when = start.astimezone(tz).strftime("%a %d %b %H:%M")
         db.log_activity(f"Receptionist booked {name or contact} for {when}", "ok", tool="book_appointment",
@@ -165,7 +165,7 @@ async def run(tool: str, args: dict) -> Any:
         allowed = {l.lower(): l for l in r["labels"]}
         if label.lower() not in allowed:
             raise RuntimeError(f"Use one of these labels: {', '.join(r['labels'])}")
-        res = await google.organize([t["message_id"]], add_labels=[f"JARVIS/{allowed[label.lower()]}"],
+        res = await mailcal.organize([t["message_id"]], add_labels=[f"JARVIS/{allowed[label.lower()]}"],
                                     archive=bool(args.get("archive")) and r.get("allow_archive", False))
         t["sorted"] = allowed[label.lower()]
         return {"sorted": True, "label": allowed[label.lower()], "archived": res["archived"]}
@@ -192,7 +192,7 @@ def instructions(ticket: str) -> str:
     owner = s.get("user_name") or "the owner"
     business = r.get("business_name") or owner
     now = dt.datetime.now().astimezone()
-    h = google.hours()
+    h = mailcal.hours()
     days = ", ".join(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d - 1] for d in h["days"])
     lines = [
         f"You are the assistant answering for {business}. You are NOT talking to {owner}; you're talking to someone else.",
@@ -262,15 +262,15 @@ def _mark(message_id: str, label: str | None, summary: str) -> None:
 
 async def process_inbox(max_messages: int = 8) -> dict:
     """Sort new inbox mail and draft replies (which wait for approval)."""
-    if not google.connected():
+    if not mailcal.connected():
         return {"processed": 0, "note": "Google isn't connected"}
-    msgs = await google.search("in:inbox is:unread newer_than:2d -label:JARVIS", max_messages)
+    msgs = await mailcal.search("in:inbox is:unread newer_than:2d -label:JARVIS", max_messages)
     done = 0
     for m in msgs:
         if _seen(m["id"]):
             continue
-        full = await google.read(m["id"])
-        sender = google.sender_email(full.get("reply_to") or full["from"])
+        full = await mailcal.read(m["id"])
+        sender = mailcal.sender_email(full.get("reply_to") or full["from"])
         ticket = new_ticket("email", email=sender, message_id=m["id"], subject=full["subject"])
         from .redact import redact
         content = (f"From: {full['from']}\nSubject: {full['subject']}\nDate: {full['date']}\n\n"
@@ -292,7 +292,7 @@ async def inbox_loop() -> None:
     while True:
         r = settings()
         wait = max(5, int(r.get("inbox_minutes") or 10)) * 60
-        if r.get("inbox_assistant") and google.connected() and not db.get_settings().get("emergency_stop"):
+        if r.get("inbox_assistant") and mailcal.connected() and not db.get_settings().get("emergency_stop"):
             try:
                 await process_inbox()
             except Exception as e:

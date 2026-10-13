@@ -95,19 +95,19 @@ def briefing_settings() -> dict:
 
 async def gather() -> dict:
     """The facts for today's briefing (no AI involved)."""
-    from . import google
+    from . import mailcal
     data: dict = {"date": dt.datetime.now().astimezone().strftime("%A %d %B")}
-    if google.connected():
+    if mailcal.connected():
         try:
             now = dt.datetime.now().astimezone()
             end = now.replace(hour=23, minute=59)
             data["calendar"] = [{"time": (e["start"] or "")[11:16] or "all day", "title": e["title"]}
-                                for e in (await google.events(now.isoformat(), end.isoformat()))["events"]]
+                                for e in (await mailcal.events(now.isoformat(), end.isoformat()))["events"]]
         except Exception as e:
             data["calendar_error"] = str(e)[:120]
         try:
-            mails = await google.search("in:inbox is:unread newer_than:1d -category:promotions -category:social", 8)
-            data["unread_email"] = [{"from": google.sender_email(m["from"]) or m["from"], "subject": m["subject"]} for m in mails]
+            mails = await mailcal.search("in:inbox is:unread newer_than:1d -category:promotions -category:social", 8)
+            data["unread_email"] = [{"from": mailcal.sender_email(m["from"]) or m["from"], "subject": m["subject"]} for m in mails]
         except Exception as e:
             data["email_error"] = str(e)[:120]
     data["tasks"] = [t["title"] for t in db.q(

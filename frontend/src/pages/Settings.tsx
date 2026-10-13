@@ -338,6 +338,8 @@ function GoogleSection() {
   const [secret, setSecret] = useState('')
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
   const [showHow, setShowHow] = useState(false)
+  const [advanced, setAdvanced] = useState(false)
+  const [test, setTest] = useState<string | null>(null)
   useEffect(() => { api.google().then(setG).catch(() => {}) }, [])
   if (!g) return null
   const st = g.status, set = g.settings
@@ -348,19 +350,47 @@ function GoogleSection() {
     catch (e) { setMsg({ text: (e as Error).message, bad: true }) }
   }
   const bh = set.business_hours
+  const runTest = async () => {
+    setTest('Checking Mail and Calendar… (macOS may ask you to allow JARVIS — click OK)')
+    try {
+      const r = await api.testMailcal()
+      setTest(r.email_error || r.calendar_error ? `Problem: ${r.email_error || r.calendar_error}`
+        : `Working ✓ Latest email: “${r.recent_emails?.[0] || '—'}” · ${r.events_today ?? 0} event(s) today`)
+    } catch (e) { setTest((e as Error).message) }
+  }
   return (
     <Section title="Google (Gmail + Calendar)">
       <div className="flex items-center gap-2 text-sm mb-4">
-        <span className={`size-2 rounded-full ${st.connected ? 'bg-ok' : 'bg-faint'}`} aria-hidden />
-        {st.connected ? <span>Connected as <b>{st.email || 'your account'}</b></span> : <span className="text-dim">Not connected</span>}
+        <span className={`size-2 rounded-full ${st.provider ? 'bg-ok' : 'bg-faint'}`} aria-hidden />
+        {st.provider === 'google' ? <span>Connected directly as <b>{st.email || 'your account'}</b></span>
+          : st.provider === 'mac' ? <span>Connected through your Mac's Mail and Calendar</span>
+          : <span className="text-dim">Not connected</span>}
       </div>
-      <p className="text-sm text-dim mb-3">JARVIS reads, sorts and drafts email, checks your calendar and books appointments. Sending email, and invites to other people, always waits for your OK. He can’t delete mail.</p>
-      <button className="text-sm text-arc hover:underline mb-3" onClick={() => setShowHow(!showHow)} aria-expanded={showHow}>{showHow ? 'Hide the steps' : 'How to get a Google client ID (5 minutes, once)'}</button>
+      <p className="text-sm text-dim mb-4">JARVIS reads, sorts and answers email, checks your calendar and books appointments. Sending email always waits for your OK, and he can't delete mail.</p>
+
+      <h3 className="text-sm text-ink mb-2">Easiest: sign in to Google on your Mac (no keys or codes)</h3>
+      <ol className="text-sm text-dim list-decimal pl-5 space-y-1 mb-3">
+        <li>Click <b>Open Internet Accounts</b> → <b>Add Account</b> → <b>Google</b> and sign in like normal.</li>
+        <li>Make sure <b>Mail</b> and <b>Calendars</b> are switched on for that account.</li>
+        <li>Click <b>Use my Mac's Gmail &amp; Calendar</b>, then <b>Test</b>. If macOS asks whether JARVIS may control Mail or Calendar, click <b>OK</b>.</li>
+      </ol>
+      <div className="flex flex-wrap gap-2 mb-2">
+        <Button onClick={() => api.openInternetAccounts().catch(e => setMsg({ text: (e as Error).message, bad: true }))}>Open Internet Accounts</Button>
+        {st.mac
+          ? <Button tone="danger" onClick={async () => setG(await api.useMacAccounts(false))}>Stop using the Mac's accounts</Button>
+          : <Button tone="primary" onClick={async () => { setG(await api.useMacAccounts(true)); runTest() }}>Use my Mac's Gmail &amp; Calendar</Button>}
+        {st.provider && <Button onClick={runTest}>Test</Button>}
+      </div>
+      {test && <p className={`text-sm mb-2 ${test.startsWith('Working') ? 'text-ok' : test.startsWith('Checking') ? 'text-dim' : 'text-amber'}`} role="status">{test}</p>}
+
+      <button className="text-sm text-arc hover:underline mt-4 mb-3" onClick={() => setAdvanced(!advanced)} aria-expanded={advanced}>{advanced ? 'Hide' : 'Show'} advanced: direct Google connection (own client ID)</button>
+      {advanced && <>
+      <button className="text-sm text-arc hover:underline mb-3 block" onClick={() => setShowHow(!showHow)} aria-expanded={showHow}>{showHow ? 'Hide the steps' : 'How to get a Google client ID (5 minutes, once)'}</button>
       {showHow && (
         <ol className="text-sm text-dim list-decimal pl-5 space-y-1.5 mb-4">
           <li>Open <b>console.cloud.google.com</b>, create a project (any name, e.g. “JARVIS”).</li>
           <li><b>APIs &amp; Services → Library</b>: enable <b>Gmail API</b> and <b>Google Calendar API</b>.</li>
-          <li><b>OAuth consent screen</b>: External, app name “JARVIS”, your email; add yourself as a test user. Then click <b>Publish app</b> (so access doesn’t expire after 7 days; Google will show an “unverified app” warning for your own app — that’s expected).</li>
+          <li><b>OAuth consent screen</b>: External, app name “JARVIS”, your email; add yourself as a test user. Then click <b>Publish app</b>.</li>
           <li><b>Credentials → Create credentials → OAuth client ID → Desktop app</b>. Copy the <b>Client ID</b> and <b>Client secret</b> here.</li>
           <li>Click <b>Save</b>, then <b>Connect Google</b> and allow access.</li>
         </ol>
@@ -370,6 +400,7 @@ function GoogleSection() {
         <Field label="Client secret" hint={st.client_configured ? 'Saved in Keychain. Paste to replace.' : undefined}>
           <input className={inputCls} type="password" autoComplete="off" placeholder={st.client_configured ? '••••••••' : 'GOCSPX-…'} value={secret} onChange={e => setSecret(e.target.value)} /></Field>
       </div>
+      </>}
       <h3 className="text-sm text-ink mt-5 mb-2">Working hours (for appointments)</h3>
       <div className="flex flex-wrap gap-2 mb-3">
         {DAYS.map((d, i) => {
@@ -386,8 +417,8 @@ function GoogleSection() {
       </div>
       <div className="flex flex-wrap gap-2 mt-5">
         <Button tone="primary" onClick={saveAll}>Save</Button>
-        <Button disabled={!st.client_configured && !(set.client_id && secret)} onClick={async () => { await saveAll(); location.href = '/api/google/connect' }}>{st.connected ? 'Reconnect Google' : 'Connect Google'}</Button>
-        {st.connected && <Button tone="danger" onClick={async () => setG(await api.disconnectGoogle())}>Disconnect</Button>}
+        {(advanced || st.client_configured) && <Button disabled={!st.client_configured && !(set.client_id && secret)} onClick={async () => { await saveAll(); location.href = '/api/google/connect' }}>{st.provider === 'google' ? 'Reconnect Google' : 'Connect Google directly'}</Button>}
+        {st.provider === 'google' && <Button tone="danger" onClick={async () => setG(await api.disconnectGoogle())}>Disconnect</Button>}
       </div>
       {msg && <p className={`text-sm mt-3 ${msg.bad ? 'text-fault' : 'text-ok'}`} role="status">{msg.text}</p>}
     </Section>

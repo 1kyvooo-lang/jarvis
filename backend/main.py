@@ -28,7 +28,7 @@ from shared.settings import (BACKEND_HOST, BACKEND_PORT, DATA_DIR, LOG_DIR, ROOT
 
 from . import (actions, agent_client, browser_policy, chat, db, hermes, integrations, memory, phone, scheduler,
                secrets_store, services, updater, voice, wake)
-from . import backup, google, public, remote, routines
+from . import backup, google, mailcal, public, remote, routines
 
 log = logging.getLogger("jarvis.backend")
 
@@ -152,7 +152,7 @@ async def status():
         "browser": {"available": (ROOT / "mcp-runtime" / "node_modules" / "@playwright" / "mcp").exists()},
         "phone": phone.status(),
         "update": {"available": updater.info()["available"]},
-        "google": google.status(),
+        "google": {**google.status(), "connected": mailcal.connected(), "provider": mailcal.provider()},
         "emergency_stop": settings.get("emergency_stop", False),
         "user_name": settings.get("user_name", ""),
         "platform": sys.platform,
@@ -267,7 +267,8 @@ class GoogleIn(BaseModel):
 
 def _google_view() -> dict:
     g = db.get_settings()["google"]
-    return {"status": google.status(), "settings": {k: g.get(k) for k in
+    return {"status": {**google.status(), "provider": mailcal.provider(), "mac": mailcal.mac_enabled()},
+            "settings": {k: g.get(k) for k in
             ("client_id", "email", "business_hours", "slot_minutes", "min_notice_hours")}}
 
 
@@ -301,6 +302,36 @@ async def google_put(body: GoogleIn):
         g["min_notice_hours"] = body.min_notice_hours
     db.set_setting("google", g)
     return _google_view()
+
+
+class MailcalIn(BaseModel):
+    mac: bool
+    calendar: str = ""
+
+
+@app.put("/api/mailcal")
+async def mailcal_put(body: MailcalIn):
+    db.set_setting("mailcal", {"mac": body.mac, "calendar": body.calendar.strip()})
+    db.log_activity("Email & calendar " + ("connected through the Mac's accounts" if body.mac else "Mac connection off"),
+                    "info", tool="google", source="user")
+    return _google_view()
+
+
+@app.post("/api/mailcal/open-accounts")
+async def mailcal_open_accounts():
+    """Open System Settings → Internet Accounts, where you sign in to Google."""
+    if sys.platform != "darwin":
+        raise HTTPException(400, "This only works on a Mac.")
+    for url in ("x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension",
+                "x-apple.systempreferences:com.apple.preferences.internetaccounts"):
+        if subprocess.run(["open", url]).returncode == 0:
+            break
+    return {"ok": True}
+
+
+@app.post("/api/mailcal/test")
+async def mailcal_test():
+    return await mailcal.test()
 
 
 @app.get("/api/google/connect")

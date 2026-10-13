@@ -72,7 +72,11 @@ Talk over him to interrupt. Say "goodbye" or click **End call** to stop. The con
 
 ## Email, calendar and appointments (Google)
 
-Settings → **Google**: follow the 5 steps to create your own Google OAuth client, then click **Connect Google**.
+Settings → **Google**. The easy way doesn't need a client ID:
+1. Click **Open Internet Accounts** → Add Account → **Google** and sign in, with Mail and Calendars switched on.
+2. Click **Use my Mac's Gmail & Calendar**, then **Test**. Allow JARVIS to control Mail and Calendar when macOS asks.
+
+JARVIS then works with your Gmail and Google Calendar through the Mac's Mail and Calendar apps. If you prefer a direct API connection (Gmail labels, calendar invites), the advanced option uses your own Google OAuth client.
 
 - “What's in my inbox?”, “Archive all the newsletters”, “Reply to Anna and say Tuesday works”: he reads, labels, archives and drafts. **Sending always waits for your OK.** He can't delete mail.
 - “What's on tomorrow?”, “Book a dentist slot Friday at 3”: he reads your calendar and books. Inviting other people asks first.

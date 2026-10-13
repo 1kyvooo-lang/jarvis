@@ -93,6 +93,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "router": {"enabled": False, "auto": True, "routes": {}},
     "briefing": {"enabled": False, "time": "08:00", "days": [1, 2, 3, 4, 5, 6, 7], "via": "text"},
     "update": {"auto": True},
+    "mailcal": {"mac": False, "calendar": ""},
     "personality": {"style": "jarvis", "address": "sir"},
     "wake": {"enabled": True, "threshold": 0.5, "greeting": "", "open_at_login": True},
     "emergency_stop": False,

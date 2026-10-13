@@ -395,3 +395,196 @@ def obsidian_open(args, perms):
     from urllib.parse import quote
     _run(["open", f"obsidian://open?path={quote(str(p))}"])
     return {"opened": str(p.relative_to(vault))}
+
+
+# ---------------------------------------------------------------- Mail & Calendar apps (your Google account on the Mac)
+# These drive Apple Mail and Calendar with JavaScript for Automation, so they work with any account you've added in
+# System Settings → Internet Accounts (e.g. Google) — no developer keys. Values are passed as arguments, never spliced
+# into the script source.
+
+def _jxa(script: str, *argv: str, timeout: float = 60) -> object:
+    import json as _json
+    _require_mac()
+    out = subprocess.run(["osascript", "-l", "JavaScript", "-e", script, *argv], capture_output=True, text=True,
+                         timeout=timeout, check=False)
+    if out.returncode != 0:
+        err = (out.stderr or out.stdout).strip()
+        if "-1743" in err or "Not authorized" in err:
+            raise ToolError("macOS hasn't allowed JARVIS to use this app yet. Open System Settings → Privacy & Security → "
+                            "Automation and allow it for Mail / Calendar, then try again.")
+        raise ToolError(err[-300:] or "the Mail/Calendar app didn't answer")
+    try:
+        return _json.loads(out.stdout or "null")
+    except ValueError:
+        raise ToolError("Unexpected answer from the Mail/Calendar app")
+
+
+MAIL_LIST_JS = r'''
+function run(argv) {
+  const [query, unreadOnly, max, days] = [argv[0].toLowerCase(), argv[1] === '1', parseInt(argv[2]), parseFloat(argv[3])];
+  const box = Application('Mail').inbox;
+  // one Apple event per property for the whole inbox (fast), instead of one per message
+  const ids = box.messages.id(), dates = box.messages.dateReceived();
+  if (!ids.length) return JSON.stringify([]);
+  const subs = box.messages.subject(), froms = box.messages.sender(), reads = box.messages.readStatus();
+  const order = ids.map((_, i) => i).sort((x, y) => (dates[y] ? dates[y].getTime() : 0) - (dates[x] ? dates[x].getTime() : 0));
+  const cutoff = days > 0 ? Date.now() - days * 864e5 : 0;
+  const rows = [];
+  for (const i of order) {
+    const d = dates[i] ? dates[i].getTime() : 0;
+    if (cutoff && d < cutoff) break;
+    if (unreadOnly && reads[i]) continue;
+    const hay = ((subs[i] || '') + ' ' + (froms[i] || '')).toLowerCase();
+    if (query && !query.split(/\s+/).every(w => hay.includes(w))) continue;
+    rows.push({ id: String(ids[i]), subject: subs[i] || '(no subject)', from: froms[i] || '',
+                date: dates[i] ? dates[i].toISOString() : '', unread: !reads[i] });
+    if (rows.length >= max) break;
+  }
+  return JSON.stringify(rows);
+}'''
+
+MAIL_READ_JS = r'''
+function run(argv) {
+  const Mail = Application('Mail');
+  const found = Mail.inbox.messages.whose({ id: parseInt(argv[0]) })();
+  if (!found.length) throw new Error('Message not found in the inbox');
+  const m = found[0];
+  return JSON.stringify({ id: argv[0], subject: m.subject(), from: m.sender(), to: m.toRecipients().map(r => r.address()).join(', '),
+    date: m.dateReceived().toISOString(), reply_to: m.replyTo() || '', body: (m.content() || '').slice(0, 20000), unread: !m.readStatus() });
+}'''
+
+MAIL_ORGANIZE_JS = r'''
+function run(argv) {
+  const Mail = Application('Mail');
+  const ids = JSON.parse(argv[0]), opts = JSON.parse(argv[1]);
+  let done = 0;
+  for (const id of ids) {
+    const found = Mail.inbox.messages.whose({ id: parseInt(id) })();
+    if (!found.length) continue;
+    const m = found[0];
+    if (opts.mark_read === true) m.readStatus = true;
+    if (opts.mark_read === false) m.readStatus = false;
+    if (opts.flag !== undefined && opts.flag !== null) { m.flaggedStatus = opts.flag >= 0; if (opts.flag >= 0) m.flagIndex = opts.flag; }
+    if (opts.move_to) {
+      const acct = m.mailbox().account();
+      let target = null;
+      try { target = acct.mailboxes.byName(opts.move_to); target.name(); } catch (e) { target = null; }
+      if (!target) { Mail.make({ new: 'mailbox', withProperties: { name: opts.move_to }, at: acct }); target = acct.mailboxes.byName(opts.move_to); }
+      Mail.move(m, { to: target });
+    } else if (opts.archive) {
+      const acct = m.mailbox().account();
+      let target = null;
+      for (const name of ['[Gmail]/All Mail', 'All Mail', 'Archive']) { try { acct.mailboxes.byName(name).name(); target = acct.mailboxes.byName(name); break } catch (e) {} }
+      if (!target) throw new Error('No archive mailbox found for this account');
+      Mail.move(m, { to: target });
+    }
+    done++;
+  }
+  return JSON.stringify({ updated: done });
+}'''
+
+MAIL_SEND_JS = r'''
+function run(argv) {
+  const Mail = Application('Mail');
+  const [to, subject, body, cc, replyId] = argv;
+  let msg;
+  if (replyId) {
+    const found = Mail.inbox.messages.whose({ id: parseInt(replyId) })();
+    if (!found.length) throw new Error('The email to reply to was not found');
+    msg = found[0].reply({ openingWindow: false, replyToAll: false });
+    msg.content = body + '\n\n' + (msg.content() || '');
+  } else {
+    msg = Mail.OutgoingMessage({ subject: subject, content: body, visible: false });
+    Mail.outgoingMessages.push(msg);
+    for (const a of to.split(',').map(s => s.trim()).filter(Boolean)) msg.toRecipients.push(Mail.Recipient({ address: a }));
+    for (const a of (cc || '').split(',').map(s => s.trim()).filter(Boolean)) msg.ccRecipients.push(Mail.CcRecipient({ address: a }));
+  }
+  msg.send();
+  return JSON.stringify({ sent: true, to: to, subject: subject });
+}'''
+
+CAL_EVENTS_JS = r'''
+function run(argv) {
+  const Cal = Application('Calendar');
+  const a = new Date(argv[0]), b = new Date(argv[1]);
+  const out = [];
+  for (const c of Cal.calendars()) {
+    let evs = [];
+    try { evs = c.events.whose({ _and: [{ startDate: { _lessThan: b } }, { endDate: { _greaterThan: a } }] })(); } catch (e) { continue; }
+    for (const e of evs) {
+      try { out.push({ title: e.summary(), start: e.startDate().toISOString(), end: e.endDate().toISOString(),
+                       allday: e.alldayEvent(), calendar: c.name(), location: e.location() || '' }); } catch (x) {}
+    }
+  }
+  out.sort((x, y) => x.start.localeCompare(y.start));
+  return JSON.stringify(out.slice(0, 200));
+}'''
+
+CAL_CREATE_JS = r'''
+function run(argv) {
+  const Cal = Application('Calendar');
+  const [title, start, end, notes, location, preferred] = argv;
+  const cals = Cal.calendars().filter(c => { try { return c.writable(); } catch (e) { return false; } });
+  if (!cals.length) throw new Error('No calendar you can add events to was found');
+  const cal = cals.find(c => preferred && c.name().toLowerCase() === preferred.toLowerCase()) ||
+              cals.find(c => c.name().includes('@')) || cals[0];
+  const ev = Cal.Event({ summary: title, startDate: new Date(start), endDate: new Date(end), description: notes, location: location });
+  cal.events.push(ev);
+  return JSON.stringify({ created: true, title: title, start: start, end: end, calendar: cal.name() });
+}'''
+
+
+@tool(name="mac_mail_list", category="mail", mac_only=True, timeout=90,
+      description="Internal (used by JARVIS's email tools): list inbox messages from the Mail app.",
+      input_schema={"properties": {"query": {"type": "string", "maxLength": 200}, "unread_only": {"type": "boolean"},
+                                   "max_results": {"type": "integer", "minimum": 1, "maximum": 50},
+                                   "days": {"type": "number", "minimum": 0, "maximum": 365}}})
+def mac_mail_list(args, perms):
+    return {"messages": _jxa(MAIL_LIST_JS, args.get("query", ""), "1" if args.get("unread_only") else "0",
+                             str(args.get("max_results", 10)), str(args.get("days", 0)), timeout=90)}
+
+
+@tool(name="mac_mail_read", category="mail", mac_only=True, timeout=60,
+      description="Internal: read one inbox message from the Mail app.",
+      input_schema={"properties": {"id": {"type": "string", "maxLength": 40}}, "required": ["id"]})
+def mac_mail_read(args, perms):
+    return _jxa(MAIL_READ_JS, args["id"])
+
+
+@tool(name="mac_mail_organize", category="mail", mac_only=True, timeout=90,
+      description="Internal: mark read/unread, flag, archive or move inbox messages in the Mail app.",
+      input_schema={"properties": {"ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 100},
+                                   "mark_read": {"type": "boolean"}, "flag": {"type": "integer", "minimum": -1, "maximum": 6},
+                                   "archive": {"type": "boolean"}, "move_to": {"type": "string", "maxLength": 100}},
+                    "required": ["ids"]})
+def mac_mail_organize(args, perms):
+    import json as _json
+    opts = {k: args[k] for k in ("mark_read", "flag", "archive", "move_to") if k in args}
+    return _jxa(MAIL_ORGANIZE_JS, _json.dumps(args["ids"]), _json.dumps(opts), timeout=90)
+
+
+@tool(name="mac_mail_send", category="mail", mac_only=True, sensitive=True, timeout=60,
+      description="Internal: send an email (or a reply) from the Mail app. Always needs the user's approval.",
+      input_schema={"properties": {"to": {"type": "string", "maxLength": 500}, "subject": {"type": "string", "maxLength": 300},
+                                   "body": {"type": "string", "maxLength": 20000}, "cc": {"type": "string", "maxLength": 500},
+                                   "reply_to_id": {"type": "string", "maxLength": 40}}, "required": ["to", "body"]})
+def mac_mail_send(args, perms):
+    return _jxa(MAIL_SEND_JS, args["to"], args.get("subject", ""), args["body"], args.get("cc", ""), args.get("reply_to_id", ""))
+
+
+@tool(name="mac_calendar_events", category="calendar", mac_only=True, timeout=90,
+      description="Internal: list Calendar app events between two ISO times.",
+      input_schema={"properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start", "end"]})
+def mac_calendar_events(args, perms):
+    return {"events": _jxa(CAL_EVENTS_JS, args["start"], args["end"], timeout=90)}
+
+
+@tool(name="mac_calendar_create", category="calendar", mac_only=True, timeout=60,
+      description="Internal: add an event in the Calendar app.",
+      input_schema={"properties": {"title": {"type": "string", "maxLength": 200}, "start": {"type": "string"},
+                                   "end": {"type": "string"}, "notes": {"type": "string", "maxLength": 4000},
+                                   "location": {"type": "string", "maxLength": 300}, "calendar": {"type": "string", "maxLength": 200}},
+                    "required": ["title", "start", "end"]})
+def mac_calendar_create(args, perms):
+    return _jxa(CAL_CREATE_JS, args["title"], args["start"], args["end"], args.get("notes", ""), args.get("location", ""),
+                args.get("calendar", ""))

@@ -196,7 +196,7 @@ async def _run_local(name: str, args: dict) -> Any:
         from . import phone
         return await phone.sms_to(args["to"], args["message"])
     if name in GOOGLE_TOOLS:
-        from . import google
+        from . import mailcal as google   # Mac accounts or Google API, whichever is connected
         if name == "email_search":
             return {"messages": await google.search(args.get("query") or "in:inbox", args.get("max_results", 10))}
         if name == "email_read":
@@ -229,16 +229,16 @@ async def claude_tools() -> tuple[list[dict], dict]:
     """Return (tool definitions for Claude, metadata by name)."""
     from . import phone
     phone_on = phone.configured()
-    from . import google
-    google_on = google.connected()
+    from . import mailcal
+    google_on = mailcal.connected()
     defs = [dict(t) for t in LOCAL_TOOLS
             if (phone_on or t["name"] not in PHONE_TOOLS) and (google_on or t["name"] not in GOOGLE_TOOLS)]
     meta: dict[str, dict] = {t["name"]: {"local": True, "requires_approval": False} for t in LOCAL_TOOLS}
     catalog = await agent_client.tools()
     if catalog and not db.get_settings().get("emergency_stop"):
         for t in catalog["tools"]:
-            if not t["enabled"]:
-                continue
+            if not t["enabled"] or t["name"].startswith(("mac_mail_", "mac_calendar_")):
+                continue      # internal: reached through email_* / calendar_* below
             desc = t["description"]
             if t["requires_approval"]:
                 desc += " (Requires the user's approval in the dashboard before it runs.)"

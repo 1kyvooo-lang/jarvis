@@ -190,9 +190,9 @@ public_gateway = Service("hermes-public", f"http://127.0.0.1:{PUBLIC_HERMES_PORT
 
 
 def public_needed() -> bool:
-    from . import google
+    from . import mailcal
     r = db.get_settings().get("receptionist") or {}
-    return bool((r.get("answer_others") and phone.configured()) or (r.get("inbox_assistant") and google.connected()))
+    return bool((r.get("answer_others") and phone.configured()) or (r.get("inbox_assistant") and mailcal.connected()))
 
 
 _force_ok: dict[str, bool] = {}
