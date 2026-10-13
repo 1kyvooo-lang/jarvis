@@ -145,8 +145,10 @@ if ask "Start JARVIS automatically when you log in? (recommended)"; then
   bash scripts/launchagent.sh install >/dev/null && ok "Starts at login"
 fi
 
+bash scripts/menubar.sh >/dev/null 2>&1 && ok "Menu bar icon and Dock" || note "Menu bar icon skipped"
+
 step "Opening JARVIS"
 open "$APP"
-printf "\n${GREEN}${BOLD}JARVIS is installed.${OFF} It's in your Applications folder — drag it to the Dock if you like.\n"
+printf "\n${GREEN}${BOLD}JARVIS is installed.${OFF} Open it from the Dock, the menu bar icon, or Spotlight (Cmd+Space → JARVIS).\n"
 printf "${DIM}First launch: add your ElevenLabs key on the setup screen, and allow the microphone when asked.${OFF}\n\n"
 read -r -p "Press Enter to close this window…" _

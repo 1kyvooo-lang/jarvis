@@ -34,6 +34,7 @@ echo "Python packages…"
 echo "Dashboard…"
 (cd frontend && npm install --silent --no-audit --no-fund && npm run build --silent) || fail "dashboard build failed"
 [ "$(uname)" = "Darwin" ] && { bash scripts/build_app.sh >/dev/null || echo "warning: couldn't rebuild JARVIS.app"; }
+[ "$(uname)" = "Darwin" ] && { bash scripts/menubar.sh || echo "warning: menu bar icon skipped"; }
 echo "Playwright MCP…"
 (cd mcp-runtime && npm install --silent --no-audit --no-fund) || echo "warning: Playwright MCP install had problems"
 .venv/bin/python -c "import sys; sys.path.insert(0, '.'); from backend import hermes; hermes.ensure_config(); hermes.ensure_env()" \
