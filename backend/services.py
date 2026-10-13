@@ -134,6 +134,7 @@ async def _ensure_agent() -> None:
         return
     if agent.proc and agent.proc.poll() is not None:
         agent.restarts += 1
+        agent.detail = "The Mac agent stopped unexpectedly. Last log lines:\n" + _tail(LOG_DIR / "agent.out")
         if time.time() - agent._last_start < 5 * min(agent.restarts, 6):
             return  # back off
     agent.spawn([sys.executable, "-m", "agent.server"])

@@ -2,7 +2,7 @@
 
 export type Status = {
   brain: { ready: boolean; state: string; detail: string; model: string | null; installed: boolean; model_configured: boolean | null; restarts?: number }
-  agent: { online: boolean; error?: string; version?: string; platform?: string; stopped?: boolean; uptime_s?: number; executed?: number; failed?: number; tool_count?: number }
+  agent: { online: boolean; error?: string; service?: { state: string; detail: string; restarts: number }; version?: string; platform?: string; stopped?: boolean; uptime_s?: number; executed?: number; failed?: number; tool_count?: number }
   voice: { elevenlabs: boolean; key_source: string; key_hint: string | null; provider: string }
   browser: { available: boolean }
   phone: PhoneStatus

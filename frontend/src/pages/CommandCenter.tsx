@@ -164,6 +164,7 @@ export default function CommandCenter({ go }: { go: (p: PageId) => void }) {
             </button>
           )}
           {s && !s.brain.ready && s.brain.detail && <p className="text-[12px] text-faint mt-2 whitespace-pre-wrap line-clamp-4" title={s.brain.detail}>Hermes: {s.brain.detail}</p>}
+          {s && !s.agent.online && (s.agent.service?.detail || s.agent.error) && <p className="text-[12px] text-faint mt-2 whitespace-pre-wrap line-clamp-6" title={s.agent.service?.detail || s.agent.error}>Mac agent: {s.agent.service?.detail || s.agent.error}</p>}
         </Panel>
 
         <section ref={coreBox} className="col-span-6 max-xl:col-span-12 order-first xl:order-none hud relative min-h-[360px] overflow-hidden">
