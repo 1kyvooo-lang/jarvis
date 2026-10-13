@@ -59,6 +59,7 @@ export default function App() {
   }, [page])
 
   const s = status.data
+  if (status.error === 'remote_login_required') return <RemoteLogin />
   if (status.error && !s) {
     return (
       <div className="field min-h-full grid place-items-center p-8">
@@ -155,5 +156,29 @@ function EmergencyButton({ stopped, onChange }: { stopped: boolean; onChange: ()
       <Icon name="power" />
       <span className="max-md:hidden nav-label whitespace-nowrap">{stopped ? 'Resume actions' : 'Emergency stop'}</span>
     </button>
+  )
+}
+
+
+function RemoteLogin() {
+  const [code, setCode] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true); setErr(null)
+    try { await api.remoteLogin(code); location.reload() } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <div className="hud-field min-h-full grid place-items-center p-6">
+      <form onSubmit={submit} className="hud p-8 w-full max-w-sm text-center">
+        <img src="/core.svg" alt="" className="size-16 mx-auto mb-4" />
+        <h1 className="font-display text-2xl tracking-[0.3em] mb-1">JARVIS</h1>
+        <p className="text-dim text-sm mb-6">Enter your passcode to continue.</p>
+        <input type="password" autoFocus autoComplete="current-password" value={code} onChange={e => setCode(e.target.value)}
+          aria-label="Passcode" className="w-full h-12 rounded-lg bg-black border border-seam px-4 text-center text-lg tracking-widest outline-none focus:border-arc/70" />
+        {err && <p className="text-fault text-sm mt-3" role="alert">{err}</p>}
+        <button disabled={busy || !code} className="mt-5 w-full h-11 rounded-lg bg-arc text-black font-medium disabled:opacity-40">{busy ? 'Checking…' : 'Unlock'}</button>
+      </form>
+    </div>
   )
 }

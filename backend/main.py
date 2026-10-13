@@ -28,7 +28,7 @@ from shared.settings import (BACKEND_HOST, BACKEND_PORT, DATA_DIR, LOG_DIR, ROOT
 
 from . import (actions, agent_client, browser_policy, chat, db, hermes, integrations, memory, phone, scheduler,
                secrets_store, services, updater, voice, wake)
-from . import backup, google, public, routines
+from . import backup, google, public, remote, routines
 
 log = logging.getLogger("jarvis.backend")
 
@@ -81,6 +81,17 @@ async def _update_loop():
 
 
 app = FastAPI(title="JARVIS", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+@app.middleware("http")
+async def remote_guard(request: Request, call_next):
+    """From this Mac: open as before. From anywhere else (your phone via Tailscale): passcode required."""
+    path = request.url.path
+    if path.startswith("/api/") and path not in ("/api/remote/login", "/api/remote/whoami") \
+            and remote.is_remote(request.headers, request.client.host if request.client else None) \
+            and not remote.valid_session(request.cookies.get(remote.COOKIE)):
+        return JSONResponse({"detail": "remote_login_required"}, status_code=401)
+    return await call_next(request)
+
+
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -356,6 +367,73 @@ async def backups_restore(name: str):
         return await asyncio.to_thread(backup.restore, name)
     except (ValueError, KeyError) as e:
         raise HTTPException(400, str(e))
+
+
+# ---------------------------------------------------------------- phone access (Tailscale)
+
+class PasscodeIn(BaseModel):
+    passcode: str
+
+
+@app.get("/api/remote/whoami")
+async def remote_whoami(request: Request):
+    rem = remote.is_remote(request.headers, request.client.host if request.client else None)
+    return {"remote": rem, "signed_in": (not rem) or remote.valid_session(request.cookies.get(remote.COOKIE))}
+
+
+@app.post("/api/remote/login")
+async def remote_login(body: PasscodeIn, request: Request):
+    who = request.headers.get("tailscale-user-login") or request.headers.get("x-forwarded-for") or \
+        (request.client.host if request.client else "?")
+    try:
+        ok = await asyncio.to_thread(remote.check_passcode, body.passcode, who)
+    except PermissionError as e:
+        raise HTTPException(429, str(e))
+    if not ok:
+        db.log_activity(f"Wrong phone-access passcode ({who})", "denied", tool="remote", source="remote")
+        raise HTTPException(401, "Wrong passcode")
+    db.log_activity(f"Phone signed in ({who})", "info", tool="remote", source="remote")
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(remote.COOKIE, remote.make_session(), max_age=remote.SESSION_DAYS * 86400, httponly=True,
+                    secure=True, samesite="strict")
+    return resp
+
+
+@app.get("/api/remote")
+async def remote_get():
+    return await asyncio.to_thread(remote.status)
+
+
+@app.post("/api/remote/passcode")
+async def remote_passcode(body: PasscodeIn, request: Request):
+    if remote.is_remote(request.headers, request.client.host if request.client else None):
+        raise HTTPException(403, "Change the passcode on the Mac itself.")
+    try:
+        await asyncio.to_thread(remote.set_passcode, body.passcode)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return await asyncio.to_thread(remote.status)
+
+
+@app.post("/api/remote/enable")
+async def remote_enable(request: Request):
+    if remote.is_remote(request.headers, request.client.host if request.client else None):
+        raise HTTPException(403, "Turn this on from the Mac.")
+    try:
+        st = await asyncio.to_thread(remote.enable)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(400, str(e))
+    if st.get("url") and phone.configured():
+        try:
+            await phone.sms_owner(f"Your JARVIS link: {st['url']} — open it on your iPhone, then Share → Add to Home Screen.")
+        except Exception:
+            pass
+    return st
+
+
+@app.post("/api/remote/disable")
+async def remote_disable():
+    return await asyncio.to_thread(remote.disable)
 
 
 @app.get("/api/system")
@@ -962,8 +1040,10 @@ def main():
     logging.basicConfig(level=logging.INFO, handlers=handlers, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     for noisy in ("httpx", "httpcore", "uvicorn.access"):   # health checks every few seconds
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    # proxy_headers=False: request.client stays the real TCP peer (always this Mac); requests relayed by
+    # tailscale serve are recognised by their forwarding headers and must pass the passcode check.
     uvicorn.run("backend.main:app", host=BACKEND_HOST, port=BACKEND_PORT, log_level="warning",
-                log_config=None)
+                log_config=None, proxy_headers=False)
 
 
 if __name__ == "__main__":

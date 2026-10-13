@@ -93,6 +93,23 @@ Tell it what it may share (services, prices, hours) in Settings → Receptionist
 - “Open Spotify”, “Pause the music”, “Next song”, “What's playing?”, “Play Daft Punk on Spotify”, “Find lo-fi on YouTube”, “Open Mail”, “Volume 30”. Apps on your approved list now open without asking.
 - **Obsidian:** set your vault folder in Settings → Obsidian. Then “Search my notes for Helixa”, “Add this to my Ideas note”, “Make a note called Launch plan”. He never deletes notes. Replacing a whole note asks first and keeps a backup.
 
+## Opening JARVIS
+
+Click **JARVIS** in the Dock, use the **menu bar icon** (top right; it also has Emergency stop, Restart and Quit), or press Cmd+Space and type JARVIS. Closing the window doesn't stop him: calls, texts, reminders and the inbox keep working. If anything shows red on the Command Center, click **Restart Hermes & Mac agent**.
+
+## Reminders and morning briefing
+
+- “Remind me at 3 to call Marco”: at 3 he texts you. Say “call me” for a phone call or “notify me” for a Mac notification. Upcoming reminders appear in the Mission Timeline.
+- **Morning briefing** (Settings): every morning at your chosen time you get today's calendar, important new email, open tasks, reminders and approvals, by text or phone call.
+
+## JARVIS on your phone
+
+Settings → **JARVIS on your phone**: install Tailscale (free) on the Mac and iPhone with the same account, set a passcode, and click **Turn on phone access**. JARVIS texts you the link. Open it in Safari, then Share → **Add to Home Screen**. It's private to your devices and never on the public internet. The passcode is required, and 5 wrong tries lock it for 15 minutes.
+
+## Backups
+
+JARVIS backs up his memory, chats, tasks, reminders and settings every day and keeps 14 days, with a copy in iCloud Drive → JARVIS Backups when iCloud Drive is on. Restore from Settings → Backups. Keys stay in your Keychain and are never in a backup.
+
 ## Model router and privacy guard
 
 - Settings → **Model router**: add a *fast*, *think*, *vision* and/or *local* (Ollama) model. Start a message with `fast:` or `think:`, or let JARVIS pick: short questions go to fast, analysis goes to think. It uses Hermes's own `model_routes`, so tools and memory work the same on every model.

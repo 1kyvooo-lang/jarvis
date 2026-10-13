@@ -270,6 +270,8 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
         <p className="text-[13px] text-faint mt-3">Hermes also keeps its own long-term memory, managed by Hermes.</p>
       </Section>
 
+      <RemoteSection />
+
       <BackupSection />
 
       <Section title="Startup and quitting">
@@ -411,6 +413,46 @@ function ReceptionistSection({ r: initial, phoneOn, googleOn, onSave }: { r: Rec
       </div>
       <p className="text-[13px] text-faint mt-3">Each email it processes uses your AI model (a few cents per email, depending on the model).</p>
       <div className="mt-4"><Button tone="primary" onClick={() => onSave(r)}>Save</Button></div>
+    </Section>
+  )
+}
+
+function RemoteSection() {
+  const [r, setR] = useState<Awaited<ReturnType<typeof api.remote>> | null>(null)
+  const [code, setCode] = useState('')
+  const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = () => api.remote().then(setR).catch(() => {})
+  useEffect(() => { load() }, [])
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    setBusy(true); setMsg(null)
+    try { await fn(); setMsg({ text: ok }); load() } catch (e) { setMsg({ text: (e as Error).message, bad: true }) } finally { setBusy(false) }
+  }
+  if (!r) return null
+  const on = r.serving && r.url
+  return (
+    <Section title="JARVIS on your phone">
+      <p className="text-sm text-dim mb-3">Open the Command Center and chat with JARVIS from your iPhone, anywhere, while this Mac is on. It goes through <b>Tailscale</b> (free), a private network between your own devices, so it's never on the public internet, and it also needs your passcode.</p>
+      <ol className="text-sm text-dim list-decimal pl-5 space-y-1 mb-4">
+        <li className={r.installed ? 'text-ok' : ''}>Install <b>Tailscale</b> on this Mac (tailscale.com/download or the Mac App Store) and sign in. {r.installed && '✓'}</li>
+        <li className={r.running ? 'text-ok' : ''}>Install Tailscale on your iPhone (App Store) and sign in with the <b>same account</b>. {r.running && '✓ Mac connected'}</li>
+        <li className={r.passcode ? 'text-ok' : ''}>Choose a passcode below. {r.passcode && '✓'}</li>
+        <li className={on ? 'text-ok' : ''}>Click <b>Turn on phone access</b>. JARVIS texts you the link. On your iPhone open it in Safari → Share → <b>Add to Home Screen</b>.</li>
+      </ol>
+      <div className="flex flex-wrap gap-2 items-end">
+        <Field label={r.passcode ? 'Change passcode' : 'Passcode (6+ characters)'}>
+          <input type="password" autoComplete="new-password" className={inputCls} value={code} onChange={e => setCode(e.target.value)} />
+        </Field>
+        <Button disabled={busy || code.length < 6} onClick={() => run(async () => { await api.remotePasscode(code); setCode('') }, 'Passcode saved')}>Save passcode</Button>
+      </div>
+      <div className="flex flex-wrap gap-2 mt-4">
+        {on
+          ? <Button tone="danger" disabled={busy} onClick={() => run(api.remoteDisable, 'Phone access turned off')}>Turn off phone access</Button>
+          : <Button tone="primary" disabled={busy || !r.installed || !r.passcode} onClick={() => run(api.remoteEnable, 'Phone access is on')}>Turn on phone access</Button>}
+      </div>
+      {on && <p className="text-sm mt-3">Your link: <a className="text-arc underline" href={r.url!} target="_blank" rel="noreferrer">{r.url}</a></p>}
+      {r.error && <p className="text-amber text-sm mt-2">{r.error}</p>}
+      {msg && <p className={`text-sm mt-3 ${msg.bad ? 'text-fault' : 'text-ok'}`} role="status">{msg.text}</p>}
     </Section>
   )
 }
