@@ -15,7 +15,7 @@ class Tap extends AudioWorkletProcessor {
 }
 registerProcessor('jarvis-tap', Tap)`
 
-export type WakeStatus = 'off' | 'starting' | 'listening' | 'paused' | 'error'
+export type WakeStatus = 'off' | 'starting' | 'listening' | 'paused' | 'error' | 'elsewhere'
 
 export class WakeListener {
   private ws: WebSocket | null = null
@@ -27,8 +27,17 @@ export class WakeListener {
   private onWake: () => void
   private onStatus: (s: WakeStatus, detail?: string) => void
 
+  private bc: BroadcastChannel | null = null
+  private elsewhere = false
+
   constructor(onWake: () => void, onStatus: (s: WakeStatus, detail?: string) => void) {
     this.onWake = onWake; this.onStatus = onStatus
+    // Only one JARVIS window listens. When the listening window closes, another one takes over.
+    try {
+      this.bc = new BroadcastChannel('jarvis-wake')
+      this.bc.onmessage = e => { if (e.data === 'bye' && this.elsewhere && !this.stopped) { this.elsewhere = false; this.connect() } }
+      addEventListener('pagehide', () => { if (!this.elsewhere && !this.stopped) this.bc?.postMessage('bye') })
+    } catch { /* old browser: fine */ }
   }
 
   async start() {
@@ -56,6 +65,7 @@ export class WakeListener {
   }
 
   stop() {
+    if (!this.elsewhere) this.bc?.postMessage('bye')
     this.stopped = true
     if (this.retry) clearTimeout(this.retry)
     this.ws?.close(); this.ws = null
@@ -69,7 +79,7 @@ export class WakeListener {
     if (p === this.paused) return
     this.paused = p
     if (!p && this.ws?.readyState === WebSocket.OPEN) this.ws.send('reset')
-    if (!this.stopped) this.onStatus(p ? 'paused' : 'listening')
+    if (!this.stopped && !this.elsewhere) this.onStatus(p ? 'paused' : 'listening')
   }
 
   private connect() {
@@ -80,18 +90,19 @@ export class WakeListener {
     ws.onmessage = e => {
       const m = JSON.parse(e.data)
       if (m.type === 'ready') this.onStatus(this.paused ? 'paused' : 'listening')
-      else if (m.type === 'wake' && !this.paused) this.onWake()
+      else if (m.type === 'wake' && !this.paused && !this.elsewhere) this.onWake()
+      else if (m.type === 'replaced') { this.elsewhere = true; this.onStatus('elsewhere', 'Listening in your other JARVIS window') }
       else if (m.type === 'error') { this.onStatus('error', m.message); this.stopped = true }
     }
     ws.onclose = () => {
       if (this.ws === ws) this.ws = null
-      if (!this.stopped) this.retry = window.setTimeout(() => this.connect(), 3000)   // backend restarting
+      if (!this.stopped && !this.elsewhere) this.retry = window.setTimeout(() => this.connect(), 3000)   // backend restarting
     }
     this.ws = ws
   }
 
   private send(f: Float32Array) {
-    if (this.paused || this.ws?.readyState !== WebSocket.OPEN) return
+    if (this.paused || this.elsewhere || this.ws?.readyState !== WebSocket.OPEN) return
     const pcm = new Int16Array(f.length)
     for (let i = 0; i < f.length; i++) pcm[i] = Math.max(-1, Math.min(1, f[i])) * 0x7fff
     this.ws.send(pcm.buffer)

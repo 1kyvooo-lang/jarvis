@@ -14,8 +14,8 @@ export type CallState = 'starting' | 'listening' | 'hearing' | 'thinking' | 'spe
 
 export interface CallHooks {
   transcribe(audio: Blob): Promise<string>
-  /** Send the user's words; resolve with the text to speak back. */
-  respond(text: string): Promise<string>
+  /** Send the user's words; resolve with the reply. May start speaking early (calls onSpeaking). */
+  respond(text: string, onSpeaking: () => void): Promise<string>
   /** Speak text; resolve when playback ends (or is stopped). */
   speak(text: string): Promise<void>
   stopSpeaking(): void
@@ -26,7 +26,7 @@ export interface CallHooks {
 
 const TICK_MS = 50
 const START_MS = 150        // this much continuous voice starts an utterance
-const END_SILENCE_MS = 1000 // a pause this long ends it
+const END_SILENCE_MS = 750  // a pause this long ends it
 const MIN_SPEECH_MS = 350   // shorter blips (a cough, a click) are ignored
 const MAX_UTTERANCE_MS = 30_000
 const BARGE_MS = 280        // talking over JARVIS for this long interrupts him
@@ -211,11 +211,13 @@ export class CallSession {
       if (this.ended()) return
       if (!text) { this.listen(); return }
       if (HANG_UP.test(text)) { this.end(); return }
-      const reply = await this.hooks.respond(text)
+      const reply = await this.hooks.respond(text, () => {
+        if (this.state === 'thinking') { this.voiceMs = 0; this.quietMs = 0; this.setState('speaking') }
+      })
       if (this.ended()) return
+      if (this.state !== 'thinking' && this.state !== 'speaking') return   // you talked over him: that reply is dropped
       if (reply.trim()) {
-        this.voiceMs = 0; this.quietMs = 0
-        this.setState('speaking')
+        if (this.state !== 'speaking') { this.voiceMs = 0; this.quietMs = 0; this.setState('speaking') }
         await this.hooks.speak(reply)
       }
     } catch (e) {

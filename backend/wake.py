@@ -15,6 +15,7 @@ log = logging.getLogger("jarvis.wake")
 FRAME = 1280          # 80 ms at 16 kHz, what openWakeWord expects
 COOLDOWN_S = 2.5
 STATE = {"clients": 0, "last_wake": None, "error": None}
+ACTIVE: list = []      # open sessions; only the newest window listens, so JARVIS never answers twice
 
 
 def model_path() -> Path | None:
@@ -71,6 +72,13 @@ async def serve(ws, threshold: float) -> None:
         await ws.send_json({"type": "error", "message": str(e)})
         await ws.close()
         return
+    for old in list(ACTIVE):            # a newer JARVIS window takes over listening
+        try:
+            await old.send_json({"type": "replaced"})
+            await old.close()
+        except Exception:
+            pass
+    ACTIVE[:] = [ws]
     STATE["clients"] += 1
     STATE["error"] = None
     await ws.send_json({"type": "ready"})
@@ -91,3 +99,5 @@ async def serve(ws, threshold: float) -> None:
                 det.buf = det.np.zeros(0, dtype=det.np.int16)
     finally:
         STATE["clients"] -= 1
+        if ws in ACTIVE:
+            ACTIVE.remove(ws)

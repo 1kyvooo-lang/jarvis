@@ -10,7 +10,7 @@ from . import secrets_store
 
 BASE = "https://api.elevenlabs.io"
 DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # "George" — the voice used in ElevenLabs' own examples
-DEFAULT_TTS_MODEL = "eleven_multilingual_v2"
+DEFAULT_TTS_MODEL = "eleven_flash_v2_5"   # ElevenLabs' low-latency model (~75 ms), 32 languages
 DEFAULT_STT_MODEL = "scribe_v2"
 _transport: httpx.AsyncBaseTransport | None = None  # tests inject a mock transport
 

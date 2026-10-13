@@ -236,7 +236,8 @@ def brain():
 async def respond(ticket: str, text: str, conversation_key: str) -> str:
     """One turn with the public brain; returns its reply text (after the last tool call)."""
     reply = ""
-    async for ev in brain().stream(conversation=f"public-{conversation_key}", text=text, instructions=instructions(ticket)):
+    async for ev in brain().stream(conversation=f"public-{conversation_key}", text=text, instructions=instructions(ticket),
+                                   effort="low"):
         if ev["type"] == "text":
             reply += ev["delta"]
         elif ev["type"] == "tool_start":

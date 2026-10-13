@@ -39,7 +39,7 @@ class SlowBrain:
     def __init__(self):
         self.seen = []
 
-    async def stream(self, *, conversation, text, instructions):
+    async def stream(self, *, conversation, text, instructions, **kw):
         import asyncio
         self.seen.append((text, instructions))
         await asyncio.sleep(0.3)
@@ -183,7 +183,7 @@ class PublicBrain:
     def __init__(self):
         self.seen = []
 
-    async def stream(self, *, conversation, text, instructions):
+    async def stream(self, *, conversation, text, instructions, **kw):
         import re as _re
         self.seen.append((conversation, text, instructions))
         ticket = _re.search(r"ticket=\"(T[0-9a-f]+)\"", instructions).group(1)
@@ -222,7 +222,7 @@ def test_stranger_sms_needs_owner_yes(client, monkeypatch):
     from backend import public
 
     class Drafter:
-        async def stream(self, *, conversation, text, instructions):
+        async def stream(self, *, conversation, text, instructions, **kw):
             yield {"type": "text", "delta": "Hi! We're open 9-18, want to book?"}
             yield {"type": "done"}
     monkeypatch.setattr(public, "brain", lambda: Drafter())

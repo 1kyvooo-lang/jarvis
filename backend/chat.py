@@ -81,6 +81,10 @@ def instructions(settings: dict, user_text: str, channel: str = "app") -> str:
         "(text_message), music and YouTube (media_control, spotify_search, youtube_search), and the user's Obsidian "
         "vault (obsidian_*) for their notes. Sending anything to another person waits for the user's approval.",
     ]
+    if channel == "voice":
+        lines.append("The user is TALKING to you and your reply is spoken aloud immediately. Answer in one to three short "
+                     "spoken sentences, start with the answer itself, no Markdown, lists, URLs or emoji. If you need a tool, "
+                     "you may first say a few words like 'One moment.'")
     if channel == "phone":
         lines.append("You are on a live PHONE CALL with the user. Answer in one to three short spoken sentences, "
                      "no Markdown, lists, URLs or emoji. If a task will take a while, say you're on it.")
@@ -134,6 +138,8 @@ async def run_chat(cid: str | None, user_text: str, brain: Brain, channel: str =
         if found:
             db.log_activity(f"Privacy guard redacted {found} secret(s) before sending to the AI", "info", tool="privacy")
         kw = {"route": route} if route else {}
+        if channel in ("voice", "phone"):
+            kw["effort"] = "low"
         if route:
             yield {"type": "route", "alias": route}
         async for ev in brain.stream(conversation=f"jarvis-{cid}", text=safe_text,

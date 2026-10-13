@@ -118,6 +118,16 @@ def ensure_config(home: Path | None = None) -> dict:
             data.pop("gateway")
         changed.append("gateway.platforms.api_server.model_routes")
 
+    # Send JARVIS's tools to the model directly instead of hiding them behind tool_search:
+    # that bridge costs two extra model round trips every time a tool is used.
+    tools_cfg = data.get("tools") or {}
+    ts = tools_cfg.get("tool_search") or {}
+    if ts.get("enabled") != "off":
+        ts["enabled"] = "off"
+        tools_cfg["tool_search"] = ts
+        data["tools"] = tools_cfg
+        changed.append("tools.tool_search.enabled")
+
     pts = data.get("platform_toolsets") or {}
     if list(pts.get("api_server") or []) != API_SERVER_TOOLSETS:
         pts["api_server"] = list(API_SERVER_TOOLSETS)
@@ -161,6 +171,7 @@ def ensure_public_config(home: Path | None = None) -> list[str]:
         "env": {"PYTHONPATH": str(ROOT), "JARVIS_ROOT": str(ROOT)}, "timeout": 120, "connect_timeout": 60}}
     want["platform_toolsets"] = {"api_server": ["jarvis_public"]}
     want["memory"] = {"memory_enabled": False, "user_profile_enabled": False}
+    want["tools"] = {"tool_search": {"enabled": "off"}}
     # Its own small gateway (API server only), separate from your main one.
     want["gateway"] = {"standalone": True}
     path = home / "config.yaml"
@@ -274,10 +285,13 @@ class HermesClient:
             await self.health()
         return self._model or "hermes-agent"
 
-    async def stream(self, *, conversation: str, text: str, instructions: str, route: str | None = None) -> AsyncIterator[dict]:
+    async def stream(self, *, conversation: str, text: str, instructions: str, route: str | None = None,
+                     effort: str | None = None) -> AsyncIterator[dict]:
         """Yield normalized events: text / tool_start / tool_result / done / error."""
         body = {"model": route or await self.model(), "input": text, "conversation": conversation,
                 "instructions": instructions, "stream": True, "store": True}
+        if effort:   # e.g. "low" for spoken turns: answer fast instead of thinking at length
+            body["model_options"] = {"reasoning_effort": effort}
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(30, read=None)) as c:
                 async with c.stream("POST", f"{self.url}/v1/responses", json=body, headers=self._headers()) as r:

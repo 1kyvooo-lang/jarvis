@@ -52,7 +52,7 @@ def test_ensure_config_preserves_user_settings(tmp_path):
     cfg = tmp_path / "config.yaml"
     cfg.write_text("# my notes\nmodel:\n  default: nous/hermes-4  # keep this\nmcp_servers:\n  github:\n    command: npx\n")
     r = hermes.ensure_config(tmp_path)
-    assert set(r["changed"]) == {"mcp_servers.jarvis", "platform_toolsets.api_server"}
+    assert set(r["changed"]) == {"mcp_servers.jarvis", "platform_toolsets.api_server", "tools.tool_search.enabled"}
     text = cfg.read_text()
     assert "# my notes" in text and "# keep this" in text and "github" in text
     assert (tmp_path / "config.yaml.before-jarvis").exists()

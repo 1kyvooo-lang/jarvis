@@ -14,8 +14,10 @@ restart() {
 
 echo "Updating JARVIS to ${SHA:0:7} — $(date)"
 sleep 1   # let the dashboard get its reply first
+# a developer checkout (with .git) is never overwritten by an update
+[ -d "$TARGET/.git" ] && { echo "FAILED: $TARGET is a git checkout; not updating it"; exit 1; }
 rsync -a --delete \
-  --exclude ".venv" --exclude "data" --exclude ".env" --exclude "config/permissions.json" \
+  --exclude ".git" --exclude ".venv" --exclude "data" --exclude ".env" --exclude "config/permissions.json" \
   --exclude "frontend/node_modules" --exclude "frontend/dist" --exclude "mcp-runtime/node_modules" \
   "$SRC/" "$TARGET/" || fail "couldn't copy the new code"
 cd "$TARGET"

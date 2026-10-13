@@ -26,7 +26,7 @@ def handler(req: httpx.Request) -> httpx.Response:
     if req.url.path == "/v1/voices":
         return httpx.Response(200, json={"voices": [{"voice_id": "abc", "name": "Jarvis-ish", "category": "cloned"}]})
     if req.url.path == "/v1/models":
-        return httpx.Response(200, json=[{"model_id": "eleven_multilingual_v2", "name": "Multilingual v2", "can_do_text_to_speech": True},
+        return httpx.Response(200, json=[{"model_id": "eleven_flash_v2_5", "name": "Multilingual v2", "can_do_text_to_speech": True},
                                          {"model_id": "scribe_v2", "name": "Scribe", "can_do_text_to_speech": False}])
     return httpx.Response(404)
 
@@ -56,12 +56,12 @@ def test_speak_streams_mp3_with_default_voice():
     assert run(go()).startswith(b"ID3")
     assert seen[-1].url.path == f"/v1/text-to-speech/{voice.DEFAULT_VOICE}/stream"
     import json
-    assert json.loads(seen[-1].content) == {"text": "Good evening.", "model_id": "eleven_multilingual_v2"}
+    assert json.loads(seen[-1].content) == {"text": "Good evening.", "model_id": "eleven_flash_v2_5"}
 
 
 def test_voices_models_and_bad_key(monkeypatch):
     assert run(voice.voices())[0]["name"] == "Jarvis-ish"
-    assert [m["model_id"] for m in run(voice.models())] == ["eleven_multilingual_v2"]
+    assert [m["model_id"] for m in run(voice.models())] == ["eleven_flash_v2_5"]
     with pytest.raises(voice.VoiceError) as e:
         run(voice.check_key("wrong"))
     assert e.value.status == 401 and "accept" in str(e.value)

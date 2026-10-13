@@ -170,10 +170,10 @@ export type ChatEvent =
   | { type: 'error'; kind: string; message: string }
 
 /** POST /api/chat and stream server-sent events. */
-export async function streamChat(conversation_id: string | null, message: string, onEvent: (e: ChatEvent) => void, signal: AbortSignal) {
+export async function streamChat(conversation_id: string | null, message: string, onEvent: (e: ChatEvent) => void, signal: AbortSignal, voice = false) {
   const res = await fetch('/api/chat', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conversation_id, message }), signal,
+    body: JSON.stringify({ conversation_id, message, voice }), signal,
   })
   if (!res.ok || !res.body) {
     let detail = res.statusText

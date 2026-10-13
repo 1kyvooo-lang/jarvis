@@ -10,6 +10,7 @@ import type { CallState } from './callMode'
 import { levels } from './levels'
 import type { CoreState } from './ui'
 import { makeVoice } from './voice'
+import { SpeechQueue } from './speechQueue'
 import { WakeListener } from './wake'
 import type { WakeStatus } from './wake'
 
@@ -102,18 +103,31 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
   const updateLast = (fn: (m: Message) => Message) =>
     setMsgs(prev => { if (!prev.length) return prev; const c = prev.slice(); c[c.length - 1] = fn(c[c.length - 1]); return c })
 
+  const queueRef = useRef<SpeechQueue | null>(null)
+  const cancelSpeech = useCallback(() => { queueRef.current?.cancel(); queueRef.current = null }, [])
+
   const speak = useCallback((text: string) => {
     if (!text.trim() || !(settings?.voice.auto_speak || lastWasVoice.current)) return
     setVoice('speaking')
     voiceKit.speaker.speak(text, () => setVoice('idle')).catch(e => { setVoice('idle'); setNotice(`Couldn't speak the reply: ${(e as Error).message}`) })
   }, [settings, voiceKit])
 
-  const send = useCallback(async (text: string, opts: { silent?: boolean; voice?: boolean } = {}): Promise<string> => {
+  const send = useCallback(async (text: string, opts: { silent?: boolean; voice?: boolean; queue?: SpeechQueue } = {}): Promise<string> => {
     text = text.trim()
-    if (!text || busyRef.current) return ''
+    if (!text) return ''
+    for (let i = 0; busyRef.current && i < 40; i++) await new Promise(r => setTimeout(r, 100))   // previous reply winding down
+    if (busyRef.current) return ''
     lastWasVoice.current = !!opts.voice
     busyRef.current = true
     voiceKit.speaker.cancel()
+    // Spoken replies start playing sentence by sentence while the answer is still being written.
+    let q = opts.queue
+    if (!q && !opts.silent && useEleven && (opts.voice || settings?.voice.auto_speak)) {
+      cancelSpeech()
+      q = new SpeechQueue(() => setVoice('speaking'), m => setNotice(`Couldn't speak the reply: ${m}`))
+      queueRef.current = q
+      q.wait().then(() => { if (queueRef.current === q) { queueRef.current = null; setVoice('idle') } })
+    }
     setNotice(null); setBusy(true); setHeard(text); setReply('')
     const now = new Date().toISOString()
     setMsgs(prev => [...prev, { id: `u${Date.now()}`, role: 'user', text, created_at: now },
@@ -125,6 +139,7 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
         if (e.type === 'conversation') { if (e.id !== cidRef.current) setCid(e.id) }
         else if (e.type === 'text') {
           full += e.delta
+          q?.feed(e.delta)
           setReply(full)
           updateLast(m => {
             const parts = [...(m.parts || [])]
@@ -140,10 +155,12 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
           updateLast(m => ({ ...m, tools: (m.tools || []).map(t => t.id === e.id ? { ...t, status: e.status, output: e.output, error: e.error, approval_id: e.approval_id } : t) }))
         } else if (e.type === 'error') updateLast(m => ({ ...m, error: e.message }))
         else if (e.type === 'stopped') updateLast(m => ({ ...m, error: 'Stopped.' }))
-      }, ac.signal)
-      if (!opts.silent) speak(full)
+      }, ac.signal, !!opts.voice)
+      if (q) q.end()
+      else if (!opts.silent) speak(full)
       return full
     } catch (err) {
+      q?.end()
       updateLast(m => ({ ...m, error: (err as Error).name === 'AbortError' ? 'Stopped.' : (err as Error).message }))
     } finally {
       updateLast(m => ({ ...m, streaming: false }))
@@ -151,13 +168,14 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
       setVersion(v => v + 1)
     }
     return ''
-  }, [speak, voiceKit, setCid])
+  }, [speak, voiceKit, setCid, useEleven, settings, cancelSpeech])
 
   const stop = useCallback(() => {
     if (cidRef.current) api.stopChat(cidRef.current).catch(() => {})
     abortRef.current?.abort()
+    cancelSpeech()
     voiceKit.speaker.cancel(); voiceKit.listener.cancel(); setVoice('idle'); setPartial('')
-  }, [voiceKit])
+  }, [voiceKit, cancelSpeech])
 
   // ---- hands-free call
   const [call, setCall] = useState<CallState | null>(null)
@@ -172,14 +190,26 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
     voiceKit.speaker.cancel(); setNotice(null); setMuted(false)
     const session = new CallSession({
       transcribe: blob => transcribe(blob),
-      respond: text => send(text, { silent: true, voice: true }),
-      speak: text => new Promise<void>(resolve => {
-        voiceKit.speaker.speak(text, resolve).catch(e => {
-          if ((e as Error).name !== 'AbortError') setNotice(`Couldn't speak: ${(e as Error).message}`)
-          resolve()
+      respond: (text, onSpeaking) => {
+        cancelSpeech()
+        const q = new SpeechQueue(onSpeaking, m => setNotice(`Couldn't speak: ${m}`))
+        queueRef.current = q
+        return send(text, { silent: true, voice: true, queue: q })
+      },
+      speak: text => {
+        const q = queueRef.current
+        if (q && q.hasSpeech) return q.wait()            // already speaking it, sentence by sentence
+        return new Promise<void>(resolve => {            // e.g. the greeting after "Hey JARVIS"
+          voiceKit.speaker.speak(text, resolve).catch(e => {
+            if ((e as Error).name !== 'AbortError') setNotice(`Couldn't speak: ${(e as Error).message}`)
+            resolve()
+          })
         })
-      }),
-      stopSpeaking: () => voiceKit.speaker.cancel(),
+      },
+      stopSpeaking: () => {                               // you talked over him: stop talking AND stop writing
+        cancelSpeech(); voiceKit.speaker.cancel()
+        if (busyRef.current) { abortRef.current?.abort(); if (cidRef.current) api.stopChat(cidRef.current).catch(() => {}) }
+      },
       onState: st => { setCall(st); if (st === 'ended') { callRef.current = null; levels.mic = 0; setTimeout(() => setCall(c => (c === 'ended' ? null : c)), 600) } },
       onLevel: lvl => { levels.mic = Math.min(1, lvl * 9) },
       onError: msg => setNotice(msg),
@@ -187,13 +217,13 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
     callRef.current = session
     setCallStart(Date.now()); setCall('starting')
     await session.start(greeting)
-  }, [useEleven, status?.brain.ready, voiceKit, send])
+  }, [useEleven, status?.brain.ready, voiceKit, send, cancelSpeech])
   const endCall = useCallback(() => {
     callRef.current?.end()
     if (cidRef.current && busyRef.current) api.stopChat(cidRef.current).catch(() => {})
   }, [])
   const toggleMute = useCallback(() => { setMuted(m => { callRef.current?.setMuted(!m); return !m }) }, [])
-  const interrupt = useCallback(() => voiceKit.speaker.cancel(), [voiceKit])
+  const interrupt = useCallback(() => { cancelSpeech(); voiceKit.speaker.cancel() }, [voiceKit, cancelSpeech])
   useEffect(() => () => { callRef.current?.end() }, [])
 
   // ---- push-to-talk
@@ -234,6 +264,25 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
   // Don't listen for the wake word while he's already talking with you.
   useEffect(() => { wakeRef.current?.setPaused(!!call || voice !== 'idle' || busy) }, [call, voice, busy])
 
+  const [replaced, setReplaced] = useState(false)
+  // One JARVIS window at a time: when a new one opens, older ones close themselves (unless mid-conversation).
+  const callActiveRef = useRef(false)
+  callActiveRef.current = !!call && call !== 'ended'
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null
+    try { bc = new BroadcastChannel('jarvis-window') } catch { return }
+    const me = Math.random().toString(36).slice(2)
+    bc.onmessage = e => {
+      if (e.data?.type === 'hello' && e.data.id !== me && !callActiveRef.current) {
+        wakeRef.current?.stop()
+        window.close()          // allowed for the app window; if the browser refuses, step aside instead
+        setTimeout(() => setReplaced(true), 300)
+      }
+    }
+    bc.postMessage({ type: 'hello', id: me })
+    return () => bc?.close()
+  }, [])
+
   // After an update the background restarts with new code: reload the window to match (never mid-conversation).
   const versionRef = useRef<string | null | undefined>(undefined)
   const quietRef = useRef(true)
@@ -262,6 +311,17 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
     status, settings, reloadSettings, cid, setCid, msgs, busy, partial, notice, setNotice, voice, transcribing,
     call, callStart, muted, coreState, label, voiceProvider: voiceKit.provider, version, heard, reply,
     wake: wakeState, send, stop, newChat, startCall, endCall, toggleMute, interrupt, startListening, stopListening,
+  }
+  if (replaced) {
+    return (
+      <div className="field h-full grid place-items-center p-8 text-center">
+        <div>
+          <p className="font-display text-xl mb-2">JARVIS is open in another window</p>
+          <p className="text-dim text-sm mb-5">Only one window listens and talks, so he never answers twice. You can close this one.</p>
+          <button className="h-10 px-4 rounded-lg border border-seam text-sm" onClick={() => location.reload()}>Use this window instead</button>
+        </div>
+      </div>
+    )
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -36,7 +36,7 @@ LOADED = _read_release()     # the code version this process is actually running
 def stale() -> bool:
     """True when newer code is on disk than what's running (e.g. an update whose restart didn't happen)."""
     disk = _read_release()
-    return bool(disk and LOADED and disk != LOADED)
+    return bool(disk and LOADED and disk != LOADED) and not dev_checkout()
 
 
 def restart_detached() -> None:
@@ -45,9 +45,14 @@ def restart_detached() -> None:
                      stdout=open(LOG_DIR / "restart.log", "a"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 
 
+def dev_checkout() -> bool:
+    """A git checkout (someone working on JARVIS's code): never auto-update or self-restart it."""
+    return (ROOT / ".git").exists()
+
+
 def auto_enabled() -> bool:
     from . import db
-    return bool((db.get_settings().get("update") or {}).get("auto", True))
+    return bool((db.get_settings().get("update") or {}).get("auto", True)) and not dev_checkout()
 
 
 def current() -> str | None:
@@ -119,6 +124,8 @@ def _safe_extract(data: bytes, dest: Path) -> Path:
 
 
 async def apply() -> dict:
+    if dev_checkout():
+        raise RuntimeError("This copy of JARVIS is a git checkout; update it with git instead.")
     if STATE["running"]:
         return info()
     await check()

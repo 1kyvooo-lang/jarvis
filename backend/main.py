@@ -607,6 +607,7 @@ async def resume():
 class ChatIn(BaseModel):
     conversation_id: Optional[str] = None
     message: str = Field(min_length=1, max_length=20000)
+    voice: bool = False      # spoken turn: short answer, low reasoning effort
 
 
 @app.post("/api/chat")
@@ -616,7 +617,7 @@ async def chat_endpoint(body: ChatIn):
     async def gen():
         # If the browser disconnects (stop button / window closed) Starlette cancels this
         # generator, which closes the Hermes stream (Hermes then interrupts the run).
-        async for ev in chat.run_chat(body.conversation_id, body.message, brain):
+        async for ev in chat.run_chat(body.conversation_id, body.message, brain, "voice" if body.voice else "app"):
             yield f"data: {json.dumps(ev, default=str)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",

@@ -43,7 +43,8 @@ export default function App() {
     addEventListener('hashchange', on)
     return () => removeEventListener('hashchange', on)
   }, [])
-  const go = (p: PageId) => { location.hash = p; setPage(p) }
+  // replaceState keeps the window's history at one page, so an older JARVIS window is allowed to close itself
+  const go = (p: PageId) => { history.replaceState(null, '', '#' + p); setPage(p) }
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('jarvis.navCollapsed') === '1' } catch { return false } })
   const toggleNav = () => setCollapsed(c => { try { localStorage.setItem('jarvis.navCollapsed', c ? '0' : '1') } catch { /* ignore */ } return !c })
 

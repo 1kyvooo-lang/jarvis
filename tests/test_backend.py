@@ -25,7 +25,7 @@ class FakeBrain:
         self.turns = list(turns)
         self.calls = []
 
-    async def stream(self, *, conversation, text, instructions):
+    async def stream(self, *, conversation, text, instructions, **kw):
         self.calls.append({"conversation": conversation, "text": text, "instructions": instructions})
         for ev in self.turns.pop(0):
             yield ev

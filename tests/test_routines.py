@@ -55,7 +55,7 @@ async def test_reminder_in_the_past_is_refused_and_cancel_works():
 @pytest.mark.anyio
 async def test_briefing_sends_once_a_day(monkeypatch):
     class Brain:
-        async def stream(self, *, conversation, text, instructions):
+        async def stream(self, *, conversation, text, instructions, **kw):
             assert '"tasks"' in text and "SMS" in instructions
             yield {"type": "text", "delta": "Morning! Light day: 1 task, nothing waiting."}
             yield {"type": "done"}
