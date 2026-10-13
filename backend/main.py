@@ -28,7 +28,7 @@ from shared.settings import (BACKEND_HOST, BACKEND_PORT, DATA_DIR, LOG_DIR, ROOT
 
 from . import (actions, agent_client, browser_policy, chat, db, hermes, integrations, memory, phone, scheduler,
                secrets_store, services, updater, voice, wake)
-from . import google, public
+from . import google, public, routines
 
 log = logging.getLogger("jarvis.backend")
 
@@ -55,12 +55,15 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(scheduler.loop())
     upd = asyncio.create_task(_update_loop())
     inbox = asyncio.create_task(public.inbox_loop()) if not os.environ.get("JARVIS_NO_SUPERVISOR") else None
+    rout = asyncio.create_task(routines.loop()) if not os.environ.get("JARVIS_NO_SUPERVISOR") else None
     asyncio.create_task(_open_window_for_wake())
     yield
     task.cancel()
     upd.cancel()
     if inbox:
         inbox.cancel()
+    if rout:
+        rout.cancel()
     services.stop_all()
 
 
@@ -297,6 +300,40 @@ async def google_delete():
     return _google_view()
 
 
+# ---------------------------------------------------------------- reminders & briefing
+
+class ReminderIn(BaseModel):
+    text: str
+    at: str
+    via: str = "text"
+
+
+@app.get("/api/reminders")
+async def reminders_get():
+    return routines.list_reminders()
+
+
+@app.post("/api/reminders")
+async def reminders_add(body: ReminderIn):
+    try:
+        return routines.add_reminder(body.text, body.at, body.via)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/reminders/{rid}")
+async def reminders_cancel(rid: int):
+    return {"cancelled": routines.cancel_reminder(rid)}
+
+
+@app.post("/api/briefing/now")
+async def briefing_now():
+    try:
+        return await routines.send_briefing()
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't send the briefing: {e}")
+
+
 @app.get("/api/system")
 async def system_metrics():
     """Live CPU / memory / disk for the Command Center (read-only, not logged)."""
@@ -366,7 +403,7 @@ async def shutdown():
 
 # ---------------------------------------------------------------- settings / permissions / safety
 
-ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake", "receptionist", "router"}
+ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake", "receptionist", "router", "briefing"}
 
 
 @app.get("/api/settings")

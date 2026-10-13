@@ -55,6 +55,18 @@ LOCAL_TOOLS += [
                       "required": ["message"]}},
 ]
 LOCAL_TOOLS += [
+    {"name": "remind_me",
+     "description": "Set a reminder for the user. At that time JARVIS texts them (default), calls them, or shows a Mac "
+                    "notification. Use the user's local time; resolve 'tomorrow at 3' etc. to an ISO 8601 datetime.",
+     "input_schema": {"type": "object", "properties": {
+         "text": {"type": "string", "maxLength": 500}, "at": {"type": "string", "description": "ISO 8601 date and time"},
+         "via": {"type": "string", "enum": ["text", "call", "notification"]}}, "required": ["text", "at"]}},
+    {"name": "list_reminders", "description": "List the user's upcoming reminders.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "cancel_reminder", "description": "Cancel a reminder by id (from list_reminders).",
+     "input_schema": {"type": "object", "properties": {"reminder_id": {"type": "integer"}}, "required": ["reminder_id"]}},
+    {"name": "morning_briefing", "description": "Send the user's morning briefing right now (calendar, email, tasks).",
+     "input_schema": {"type": "object", "properties": {"via": {"type": "string", "enum": ["text", "call", "notification"]}}}},
     {"name": "text_message",
      "description": "Send an SMS to someone other than the user (via the user's Twilio number). Always waits for the user's approval; "
                     "say who it's to and what it says. For texting the user themself, use send_sms.",
@@ -170,6 +182,16 @@ async def _run_local(name: str, args: dict) -> Any:
     if name == "send_sms":
         from . import phone
         return await phone.sms_owner(args["message"])
+    if name in ("remind_me", "list_reminders", "cancel_reminder", "morning_briefing"):
+        from . import routines
+        if name == "remind_me":
+            return routines.add_reminder(args["text"], args["at"], args.get("via", "text"))
+        if name == "list_reminders":
+            return {"reminders": [{"id": r["id"], "text": r["text"], "due_at": r["due_at"], "via": r["via"]}
+                                  for r in routines.list_reminders()]}
+        if name == "cancel_reminder":
+            return {"cancelled": routines.cancel_reminder(int(args["reminder_id"]))}
+        return await routines.send_briefing(args.get("via"))
     if name == "text_message":
         from . import phone
         return await phone.sms_to(args["to"], args["message"])

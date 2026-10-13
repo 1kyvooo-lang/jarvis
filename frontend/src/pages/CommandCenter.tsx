@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import type { ReactNode } from 'react'
 import { api } from '../api'
-import type { Activity, Memory, Task } from '../api'
+import type { Activity, Memory, Reminder, Task } from '../api'
 import type { PageId } from '../App'
 import { useJarvis } from '../engine'
 import { timeAgo, usePoll } from '../hooks'
@@ -88,6 +88,7 @@ export default function CommandCenter({ go }: { go: (p: PageId) => void }) {
   const feed = usePoll<Activity[]>(() => api.activity(7), 5000)
   const tasks = usePoll<Task[]>(api.tasks, 8000)
   const mems = usePoll<Memory[]>(() => api.memories(''), 30000)
+  const rems = usePoll<Reminder[]>(api.reminders, 15000)
 
   const root = useRef<HTMLDivElement>(null)
   const coreBox = useRef<HTMLElement>(null)
@@ -114,9 +115,14 @@ export default function CommandCenter({ go }: { go: (p: PageId) => void }) {
   const talkLabel = !inCall ? (j.wake.status === 'listening' ? 'Say “Hey JARVIS” or tap' : 'Tap to talk')
     : j.call === 'speaking' ? 'Speaking…' : j.call === 'thinking' ? 'Thinking…' : j.call === 'hearing' ? 'Hearing you…' : 'I am listening…'
 
-  const timeline = (tasks.data || [])
-    .filter(t => ['todo', 'queued', 'running', 'proposed'].includes(t.status))
-    .sort((a, b) => (a.due_at || '9').localeCompare(b.due_at || '9')).slice(0, 5)
+  type Item = { key: string; when: string | null; title: string; status: string; dot: string; onCancel?: () => void }
+  const timeline: Item[] = [
+    ...(rems.data || []).map(r => ({ key: `r${r.id}`, when: r.due_at, title: `⏰ ${r.text}`, status: r.via, dot: 'bg-amber',
+      onCancel: () => api.cancelReminder(r.id).then(() => rems.refresh()) })),
+    ...(tasks.data || []).filter(t => ['todo', 'queued', 'running', 'proposed'].includes(t.status))
+      .map(t => ({ key: `t${t.id}`, when: t.due_at, title: t.title, status: t.status,
+        dot: t.status === 'running' ? 'bg-arc' : t.status === 'proposed' ? 'bg-amber' : 'bg-ok' })),
+  ].sort((a, b) => (a.when ? new Date(a.when).getTime() : 9e15) - (b.when ? new Date(b.when).getTime() : 9e15)).slice(0, 6)
   const briefing = () => j.send('Give me a short executive briefing: my open tasks, anything waiting for my approval, and my Mac’s status. Keep it brief.', { voice: true })
 
   return (
@@ -216,14 +222,15 @@ export default function CommandCenter({ go }: { go: (p: PageId) => void }) {
         <Panel title="Mission Timeline" className="col-span-4 max-xl:col-span-7 max-md:col-span-12">
           <ul className="space-y-2.5">
             {timeline.map(t => (
-              <li key={t.id} className="flex items-center gap-3 text-[13px]">
-                <span className="w-14 text-faint tabular-nums">{t.due_at ? new Date(t.due_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-                <span className={`size-2 rounded-full ${t.status === 'running' ? 'bg-arc' : t.status === 'proposed' ? 'bg-amber' : 'bg-ok'}`} />
-                <span className="flex-1 truncate text-ink">{t.title}</span>
+              <li key={t.key} className="flex items-center gap-3 text-[13px] group">
+                <span className="w-14 text-faint tabular-nums">{t.when ? new Date(t.when).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                <span className={`size-2 rounded-full ${t.dot}`} />
+                <span className="flex-1 truncate text-ink" title={t.when ? new Date(t.when).toLocaleString() : undefined}>{t.title}</span>
                 <span className="text-faint text-[12px]">{t.status}</span>
+                {t.onCancel && <button onClick={t.onCancel} aria-label={`Cancel reminder ${t.title}`} className="text-faint hover:text-fault opacity-0 group-hover:opacity-100 focus:opacity-100">✕</button>}
               </li>
             ))}
-            {!timeline.length && <li className="text-faint text-sm">No open tasks. Say “Hey JARVIS, remind me to…”.</li>}
+            {!timeline.length && <li className="text-faint text-sm">Nothing coming up. Say “Hey JARVIS, remind me at 3 to call Marco”.</li>}
           </ul>
           <button className="text-[12px] text-arc mt-3 hover:underline" onClick={() => go('tasks')}>View all tasks ›</button>
         </Panel>

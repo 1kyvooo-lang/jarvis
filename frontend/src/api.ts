@@ -30,6 +30,7 @@ export type GoogleInfo = { status: { client_configured: boolean; connected: bool
   settings: { client_id: string; email: string; business_hours: { days: number[]; start: string; end: string }; slot_minutes: number; min_notice_hours: number } }
 export type Receptionist = { answer_others: boolean; business_name: string; about: string; booking: boolean; appointment_minutes: number
   inbox_assistant: boolean; inbox_minutes: number; allow_archive: boolean; approve_by_text: boolean; labels: string[] }
+export type Reminder = { id: number; text: string; due_at: string; via: string; status: string }
 export type PhoneSettings = { enabled: boolean; account_sid: string; twilio_number: string; owner_number: string; language: string }
 export type Settings = {
   user_name: string; assistant_name: string; emergency_stop: boolean
@@ -38,6 +39,7 @@ export type Settings = {
   hermes: { api_key: string; binary: string }
   browser: { headless: boolean }
   receptionist: Receptionist
+  briefing: { enabled: boolean; time: string; days: number[]; via: 'text' | 'call' | 'notification'; last_sent?: string; conversation?: string }
   router: { enabled: boolean; auto: boolean; routes: Record<string, { model?: string; provider?: string; base_url?: string }> }
   wake: { enabled: boolean; threshold: number; greeting: string; open_at_login: boolean }
 }
@@ -84,6 +86,10 @@ export const api = {
   google: () => req<GoogleInfo>('/api/google'),
   saveGoogle: (g: Partial<GoogleInfo['settings']> & { client_secret?: string }) => req<GoogleInfo>('/api/google', { method: 'PUT', ...body(g) }),
   disconnectGoogle: () => req<GoogleInfo>('/api/google', { method: 'DELETE' }),
+  reminders: () => req<Reminder[]>('/api/reminders'),
+  addReminder: (r: { text: string; at: string; via: string }) => req('/api/reminders', { method: 'POST', ...body(r) }),
+  cancelReminder: (id: number) => req(`/api/reminders/${id}`, { method: 'DELETE' }),
+  briefingNow: () => req<{ text: string; via: string }>('/api/briefing/now', { method: 'POST' }),
   update: () => req<UpdateInfo>('/api/update'),
   checkUpdate: () => req<UpdateInfo>('/api/update/check', { method: 'POST' }),
   applyUpdate: () => req<UpdateInfo>('/api/update/apply', { method: 'POST' }),

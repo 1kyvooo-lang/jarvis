@@ -91,6 +91,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
                      "inbox_assistant": False, "inbox_minutes": 10, "allow_archive": False, "approve_by_text": True,
                      "labels": ["Needs reply", "Appointments", "Important", "Receipts", "Newsletters", "Other"]},
     "router": {"enabled": False, "auto": True, "routes": {}},
+    "briefing": {"enabled": False, "time": "08:00", "days": [1, 2, 3, 4, 5, 6, 7], "via": "text"},
     "wake": {"enabled": True, "threshold": 0.5, "greeting": "Yes? What do you need?", "open_at_login": True},
     "emergency_stop": False,
 }

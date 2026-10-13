@@ -144,6 +144,30 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
 
       <PhoneSection status={status} onChange={onChange} />
 
+      <Section title="Morning briefing">
+        <p className="text-sm text-dim mb-4">Every morning JARVIS sends you a short rundown: today's calendar, important new email, open tasks, reminders and anything waiting for your OK. Without a phone line it shows as a Mac notification.</p>
+        <div className="grid md:grid-cols-3 gap-4 items-end">
+          <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#3CE7FF] size-4" checked={s.briefing.enabled} onChange={e => setS({ ...s, briefing: { ...s.briefing, enabled: e.target.checked } })} /> Send me a morning briefing</label>
+          <Field label="At"><input type="time" className={inputCls} value={s.briefing.time} onChange={e => setS({ ...s, briefing: { ...s.briefing, time: e.target.value } })} /></Field>
+          <Field label="How">
+            <select className={inputCls} value={s.briefing.via} onChange={e => setS({ ...s, briefing: { ...s.briefing, via: e.target.value as 'text' | 'call' | 'notification' } })}>
+              <option value="text">Text message</option><option value="call">Phone call</option><option value="notification">Mac notification</option>
+            </select>
+          </Field>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {DAYS.map((d, i) => {
+            const on = s.briefing.days.includes(i + 1)
+            return <button key={d} aria-pressed={on} onClick={() => setS({ ...s, briefing: { ...s.briefing, days: on ? s.briefing.days.filter(x => x !== i + 1) : [...s.briefing.days, i + 1].sort() } })}
+              className={`h-8 px-3 rounded-lg border text-[13px] ${on ? 'border-arc text-arc bg-arc/10' : 'border-seam text-dim'}`}>{d}</button>
+          })}
+        </div>
+        <div className="flex gap-2 mt-4">
+          <Button tone="primary" onClick={() => save({ briefing: s.briefing }, 'Briefing saved')}>Save</Button>
+          <Button disabled={busy === 'brief'} onClick={() => act('brief', api.briefingNow, 'Briefing sent')}>{busy === 'brief' ? 'Preparing…' : 'Send one now'}</Button>
+        </div>
+      </Section>
+
       <Section title="Model router">
         <p className="text-sm text-dim mb-4">Send each message to the best model. Start a message with <b>fast:</b>, <b>think:</b>, <b>vision:</b> or <b>local:</b> to choose, or let JARVIS pick: short questions go to <b>fast</b>, long or analytical ones to <b>think</b>. Everything else uses your default Hermes model. Each provider needs its key in Hermes once (in Terminal: <code className="text-arc">hermes auth add &lt;provider&gt;</code>). For Ollama on this Mac use provider <code className="text-arc">custom</code> and URL <code className="text-arc">http://localhost:11434/v1</code>.</p>
         <div className="flex flex-wrap gap-6 mb-4">
