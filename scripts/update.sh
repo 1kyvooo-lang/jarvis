@@ -9,17 +9,7 @@ fail() { echo "FAILED: $*"; restart; exit 1; }
 PORT="${JARVIS_BACKEND_PORT:-8000}"
 restart() {
   echo "Restarting JARVIS…"
-  if launchctl print "gui/$(id -u)/com.jarvis.app" >/dev/null 2>&1; then
-    launchctl kickstart -k "gui/$(id -u)/com.jarvis.app"
-  else
-    curl -fsS -X POST "http://127.0.0.1:$PORT/api/shutdown" >/dev/null 2>&1
-    for i in $(seq 1 40); do   # wait until the old JARVIS has really let go of its port
-      curl -fsS -m 1 "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1 || break
-      sleep 0.5
-    done
-    sleep 1
-    (cd "$TARGET" && exec nohup "$TARGET/.venv/bin/python" -m backend.main >> "$TARGET/data/logs/app.out" 2>&1 < /dev/null) &
-  fi
+  bash "$TARGET/scripts/restart.sh"
 }
 
 echo "Updating JARVIS to ${SHA:0:7} — $(date)"

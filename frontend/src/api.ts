@@ -25,7 +25,7 @@ export type Activity = { id: number; ts: string; action: string; tool: string | 
 export type AgentTool = { name: string; description: string; input_schema: { properties?: Record<string, { type?: string; enum?: string[]; description?: string }>; required?: string[] }; category: string; sensitive: boolean; requires_approval: boolean; enabled: boolean; mac_only: boolean }
 export type Permissions = { approved_apps: string[]; approved_domains: string[]; approved_directories: string[]; approval_required: string[]; disabled_tools: string[]; browser: BrowserPolicy; obsidian_vault?: string }
 export type PhoneStatus = { enabled: boolean; configured: boolean; public_url: string | null; webhooks: string | null; error: string | null; token_hint: string | null }
-export type UpdateInfo = { repo: string; current: string | null; latest: { sha: string; message: string; date: string | null } | null; available: boolean; checked_at: number | null; error: string | null; running: boolean }
+export type UpdateInfo = { repo: string; current: string | null; running_version?: string | null; auto?: boolean; latest: { sha: string; message: string; date: string | null } | null; available: boolean; checked_at: number | null; error: string | null; running: boolean }
 export type GoogleInfo = { status: { client_configured: boolean; connected: boolean; email: string | null; redirect_uri: string }
   settings: { client_id: string; email: string; business_hours: { days: number[]; start: string; end: string }; slot_minutes: number; min_notice_hours: number } }
 export type Receptionist = { answer_others: boolean; business_name: string; about: string; booking: boolean; appointment_minutes: number
@@ -41,11 +41,34 @@ export type Settings = {
   receptionist: Receptionist
   briefing: { enabled: boolean; time: string; days: number[]; via: 'text' | 'call' | 'notification'; last_sent?: string; conversation?: string }
   router: { enabled: boolean; auto: boolean; routes: Record<string, { model?: string; provider?: string; base_url?: string }> }
+  update?: { auto: boolean }
   wake: { enabled: boolean; threshold: number; greeting: string; open_at_login: boolean }
 }
 export type BrowserPolicy = { ask_outside_approved_domains: boolean; always_ask: string[]; risky_words: string[] }
 export type ElevenVoice = { voice_id: string; name: string; category?: string; labels?: Record<string, string>; preview_url?: string }
 export type Integration = { key: string; name: string; state: string; implemented: boolean; env_vars: string[]; note: string }
+
+/** Defaults for every settings section, so the screens work even with an older JARVIS backend. */
+export const SETTINGS_DEFAULTS = {
+  user_name: '', assistant_name: 'JARVIS', emergency_stop: false,
+  voice: { provider: 'elevenlabs', auto_speak: true, voice_id: '', voice_name: '', tts_model: '', stt_language: '', browser_voice_name: '', rate: 1 },
+  memory: { auto_retrieve: true, max_items: 12 },
+  hermes: { api_key: '', binary: '' },
+  browser: { headless: false },
+  receptionist: { answer_others: true, business_name: '', about: '', booking: true, appointment_minutes: 30, inbox_assistant: false,
+    inbox_minutes: 10, allow_archive: false, approve_by_text: true, labels: ['Needs reply', 'Appointments', 'Important', 'Receipts', 'Newsletters', 'Other'] },
+  briefing: { enabled: false, time: '08:00', days: [1, 2, 3, 4, 5, 6, 7], via: 'text' },
+  router: { enabled: false, auto: true, routes: {} },
+  wake: { enabled: true, threshold: 0.5, greeting: 'Yes? What do you need?', open_at_login: true },
+} as const
+
+function withDefaults(s: Partial<Settings> | undefined): Settings {
+  const out: Record<string, unknown> = { ...SETTINGS_DEFAULTS, ...(s || {}) }
+  for (const [k, v] of Object.entries(SETTINGS_DEFAULTS)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) out[k] = { ...v, ...((s as Record<string, unknown> | undefined)?.[k] as object || {}) }
+  }
+  return out as unknown as Settings
+}
 
 export class ApiError extends Error {
   status: number
@@ -103,8 +126,8 @@ export const api = {
   applyUpdate: () => req<UpdateInfo>('/api/update/apply', { method: 'POST' }),
   voices: () => req<{ voices: ElevenVoice[] }>('/api/voice/voices'),
   voiceModels: () => req<{ models: { model_id: string; name: string }[] }>('/api/voice/models'),
-  settings: () => req<{ settings: Settings; integrations: Integration[] }>('/api/settings'),
-  saveSettings: (s: Partial<Settings>) => req<{ settings: Settings }>('/api/settings', { method: 'PUT', ...body(s) }),
+  settings: () => req<{ settings: Settings; integrations: Integration[] }>('/api/settings').then(r => ({ ...r, settings: withDefaults(r.settings), integrations: r.integrations || [] })),
+  saveSettings: (s: Partial<Settings>) => req<{ settings: Settings }>('/api/settings', { method: 'PUT', ...body(s) }).then(r => ({ settings: withDefaults(r.settings) })),
   permissions: () => req<Permissions>('/api/permissions'),
   savePermissions: (p: Permissions) => req<Permissions>('/api/permissions', { method: 'PUT', ...body(p) }),
   emergencyStop: () => req('/api/emergency-stop', { method: 'POST' }),

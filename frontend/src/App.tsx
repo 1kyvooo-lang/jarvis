@@ -7,6 +7,7 @@ import { Dot, Icon } from './ui'
 import { ApprovalTray } from './components/ApprovalTray'
 import CommandCenter from './pages/CommandCenter'
 import { JarvisProvider } from './engine'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import Assistant from './pages/Assistant'
 import MemoryPage from './pages/Memory'
 import Tasks from './pages/Tasks'
@@ -128,6 +129,7 @@ export default function App() {
           </div>
         )}
         <div ref={scroller} className="flex-1 min-h-0 overflow-y-auto">
+          <ErrorBoundary resetKey={page}>
           {page === 'overview' && <CommandCenter go={go} />}
           {page === 'assistant' && <Assistant status={s} />}
           {page === 'memory' && <MemoryPage />}
@@ -135,6 +137,7 @@ export default function App() {
           {page === 'computer' && <Computer status={s} />}
           {page === 'activity' && <ActivityPage />}
           {page === 'settings' && <SettingsPage status={s} onChange={status.refresh} />}
+          </ErrorBoundary>
         </div>
       </main>
     </div>

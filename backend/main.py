@@ -71,13 +71,36 @@ async def lifespan(app: FastAPI):
 
 
 async def _update_loop():
-    """Check GitHub for a new version shortly after start, then every 6 hours."""
+    """Self-repair every minute: if newer code is on disk than what's running, restart into it.
+    Every 2 hours: look for a new version on GitHub and (unless turned off) install it while idle."""
     if os.environ.get("JARVIS_NO_SUPERVISOR"):
         return
     await asyncio.sleep(20)
+    last_check = 0.0
     while True:
-        await updater.check()
-        await asyncio.sleep(6 * 3600)
+        try:
+            if updater.stale():
+                log.warning("newer code on disk than running (%s) — restarting", updater.LOADED)
+                db.log_activity("Restarting to finish an update", "info", tool="update", source="system")
+                updater.restart_detached()
+                return
+            if time.time() - last_check > 2 * 3600:
+                last_check = time.time()
+                info = await updater.check()
+                if info["available"] and updater.auto_enabled() and _idle():
+                    db.log_activity(f"Installing update {info['latest']['sha'][:7]} automatically", "info",
+                                    tool="update", source="system")
+                    await updater.apply()
+                    return
+        except Exception:
+            log.exception("update check failed")
+        await asyncio.sleep(60)
+
+
+def _idle() -> bool:
+    """No conversation in progress, no phone call and nothing running — safe to restart."""
+    return (not chat.ACTIVE.get("cid") and not phone.CALLS and not any(not j["task"].done() for j in phone.JOBS.values())
+            and not db.one("SELECT 1 FROM tasks WHERE status='running'"))
 
 
 app = FastAPI(title="JARVIS", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -505,7 +528,7 @@ async def shutdown():
 
 # ---------------------------------------------------------------- settings / permissions / safety
 
-ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake", "receptionist", "router", "briefing"}
+ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake", "receptionist", "router", "briefing", "update"}
 
 
 @app.get("/api/settings")

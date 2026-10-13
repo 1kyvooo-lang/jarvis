@@ -23,6 +23,33 @@ STATE: dict = {"checked_at": None, "latest": None, "error": None, "running": Fal
 _transport: httpx.AsyncBaseTransport | None = None  # tests inject a mock
 
 
+def _read_release() -> str | None:
+    try:
+        return (ROOT / ".release").read_text().strip() or None
+    except OSError:
+        return None
+
+
+LOADED = _read_release()     # the code version this process is actually running
+
+
+def stale() -> bool:
+    """True when newer code is on disk than what's running (e.g. an update whose restart didn't happen)."""
+    disk = _read_release()
+    return bool(disk and LOADED and disk != LOADED)
+
+
+def restart_detached() -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    subprocess.Popen(["/bin/bash", str(ROOT / "scripts" / "restart.sh")], cwd=str(ROOT), start_new_session=True,
+                     stdout=open(LOG_DIR / "restart.log", "a"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+
+
+def auto_enabled() -> bool:
+    from . import db
+    return bool((db.get_settings().get("update") or {}).get("auto", True))
+
+
 def current() -> str | None:
     for p in (VERSION_FILE, ROOT / ".release"):
         try:
@@ -51,7 +78,7 @@ def info() -> dict:
     except OSError:
         pass
     return {
-        "repo": REPO, "current": cur, "latest": latest,
+        "repo": REPO, "current": cur, "latest": latest, "running_version": LOADED, "auto": auto_enabled(),
         "available": bool(latest and latest["sha"] != cur),
         "checked_at": STATE["checked_at"], "error": STATE["error"] or last_error,
         "running": STATE["running"],

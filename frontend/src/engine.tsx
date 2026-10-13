@@ -234,6 +234,21 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
   // Don't listen for the wake word while he's already talking with you.
   useEffect(() => { wakeRef.current?.setPaused(!!call || voice !== 'idle' || busy) }, [call, voice, busy])
 
+  // After an update the background restarts with new code: reload the window to match (never mid-conversation).
+  const versionRef = useRef<string | null | undefined>(undefined)
+  const quietRef = useRef(true)
+  quietRef.current = !call && !busy && voice === 'idle'
+  useEffect(() => {
+    const t = setInterval(() => {
+      api.update().then(u => {
+        const v = u.running_version ?? u.current ?? null
+        if (versionRef.current === undefined) versionRef.current = v
+        else if (v && v !== versionRef.current && quietRef.current) location.reload()
+      }).catch(() => {})
+    }, 60_000)
+    return () => clearInterval(t)
+  }, [])
+
   const newChat = useCallback(() => { stop(); setCid(null); setMsgs([]); setHeard(''); setReply('') }, [stop, setCid])
 
   const coreState: CoreState = status?.emergency_stop ? 'stopped' : !status?.brain.ready ? 'offline'

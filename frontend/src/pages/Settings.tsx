@@ -535,7 +535,12 @@ function UpdateSection() {
       </div>
       {phase && <p className="text-sm text-arc mt-3" role="status">{phase}</p>}
       {(err || (u?.error && !u.available)) && <p className="text-sm text-fault mt-3" role="status">{err || u?.error}</p>}
-      <p className="text-[13px] text-faint mt-3">Updates keep your settings, chats, memory and keys. JARVIS checks for new versions on its own every few hours.</p>
+      <label className="flex items-center gap-3 text-sm mt-4">
+        <input type="checkbox" className="accent-[#3CE7FF] size-4" checked={u?.auto ?? true}
+          onChange={async e => { const auto = e.target.checked; await api.saveSettings({ update: { auto } }); setU(u ? { ...u, auto } : u) }} />
+        Install updates automatically (when JARVIS isn't busy — never during a call or conversation)
+      </label>
+      <p className="text-[13px] text-faint mt-3">Updates keep your settings, chats, memory and keys. JARVIS checks for new versions every couple of hours.</p>
     </Section>
   )
 }
