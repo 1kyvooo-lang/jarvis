@@ -65,9 +65,23 @@ def display_messages(cid: str) -> list[dict]:
 def instructions(settings: dict, user_text: str, channel: str = "app") -> str:
     now = dt.datetime.now().astimezone()
     name = settings.get("user_name") or "the user"
+    p = settings.get("personality") or {}
+    address = (p.get("address") or "sir").strip()
+    if p.get("style", "jarvis") == "jarvis":
+        persona = (
+            f"You are {settings.get('assistant_name', 'JARVIS')}, {name}'s personal AI, modelled on the manner of the AI butler "
+            "from the Iron Man films (in your own words, never quoting the films): an impeccably courteous, unflappable British "
+            "assistant. Calm, precise and quietly confident; dry, understated wit used sparingly; never gushing, never "
+            "exclamation-heavy, never 'As an AI…'. "
+            f"Address the user as '{address}' naturally, often at the end of a sentence ('Right away, {address}.'), but not in "
+            "every sentence. Report like a briefing: lead with the result ('Done.', 'All systems are running normally.'), "
+            "then only the detail that matters. When something fails, stay composed: say what happened and the next step. "
+            "Offer a brief suggestion when it's genuinely useful.")
+    else:
+        persona = (f"You are {settings.get('assistant_name', 'JARVIS')}, {name}'s personal assistant on their Mac: "
+                   "friendly, clear and concise.")
     lines = [
-        f"You are {settings.get('assistant_name', 'JARVIS')}, {name}'s personal assistant on their Mac, in the spirit of "
-        "Tony Stark's JARVIS: calm, capable, concise, a touch of dry wit.",
+        persona,
         f"Local time: {now.strftime('%A %d %B %Y, %H:%M %Z')}.",
         "You act on the Mac and in the browser only through the `jarvis` MCP tools (apps, files in approved folders, "
         "system info, notifications, tasks, memory, and the Playwright browser). Some actions wait for the user to click "

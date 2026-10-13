@@ -380,7 +380,8 @@ async def inbound_call(request: Request):
         return _twiml(await _say("JARVIS is on emergency stop. Release it on your Mac first.") + "<Hangup/>")
     _new_call(f.get("CallSid", ""), outbound=False)
     name = db.get_settings().get("user_name") or ""
-    hello = f"Hello{(' ' + name) if name else ''}. JARVIS here. How can I help?"
+    address = (db.get_settings().get("personality") or {}).get("address") or "sir"
+    hello = f"At your service, {address}. What can I do for you?"
     return _twiml(_gather(await _say(hello), "/twilio/voice/turn"))
 
 

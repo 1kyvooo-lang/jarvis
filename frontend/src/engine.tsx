@@ -255,12 +255,16 @@ export function JarvisProvider({ status, onWake, children }: { status: Status | 
     const w = new WakeListener(() => {
       if (callRef.current) return
       onWakeRef.current()
-      startCallRef.current(settings?.wake?.greeting || 'Yes? What do you need?')
+      const custom = (settings?.wake?.greeting || '').trim()
+      const addr = settings?.personality?.address || 'sir'
+      const lines = settings?.personality?.style === 'friendly' ? ['Yes? What do you need?', 'Hi! How can I help?']
+        : [`Yes, ${addr}?`, `At your service, ${addr}.`, `How may I help, ${addr}?`, `Listening, ${addr}.`]
+      startCallRef.current(custom && custom !== 'Yes? What do you need?' ? custom : lines[Math.floor(Math.random() * lines.length)])
     }, (s, detail) => setWakeState({ status: s, detail }))
     wakeRef.current = w
     w.start()
     return () => { w.stop(); if (wakeRef.current === w) wakeRef.current = null }
-  }, [wakeOn, settings?.wake?.greeting])
+  }, [wakeOn, settings?.wake?.greeting, settings?.personality?.address, settings?.personality?.style])
   // Don't listen for the wake word while he's already talking with you.
   useEffect(() => { wakeRef.current?.setPaused(!!call || voice !== 'idle' || busy) }, [call, voice, busy])
 

@@ -39,6 +39,7 @@ export type Settings = {
   hermes: { api_key: string; binary: string }
   browser: { headless: boolean }
   receptionist: Receptionist
+  personality: { style: 'jarvis' | 'friendly'; address: string }
   briefing: { enabled: boolean; time: string; days: number[]; via: 'text' | 'call' | 'notification'; last_sent?: string; conversation?: string }
   router: { enabled: boolean; auto: boolean; routes: Record<string, { model?: string; provider?: string; base_url?: string }> }
   update?: { auto: boolean }
@@ -59,7 +60,8 @@ export const SETTINGS_DEFAULTS = {
     inbox_minutes: 10, allow_archive: false, approve_by_text: true, labels: ['Needs reply', 'Appointments', 'Important', 'Receipts', 'Newsletters', 'Other'] },
   briefing: { enabled: false, time: '08:00', days: [1, 2, 3, 4, 5, 6, 7], via: 'text' },
   router: { enabled: false, auto: true, routes: {} },
-  wake: { enabled: true, threshold: 0.5, greeting: 'Yes? What do you need?', open_at_login: true },
+  wake: { enabled: true, threshold: 0.5, greeting: '', open_at_login: true },
+  personality: { style: 'jarvis', address: 'sir' },
 } as const
 
 function withDefaults(s: Partial<Settings> | undefined): Settings {

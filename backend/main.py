@@ -528,7 +528,7 @@ async def shutdown():
 
 # ---------------------------------------------------------------- settings / permissions / safety
 
-ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake", "receptionist", "router", "briefing", "update"}
+ALLOWED_SETTINGS = {"user_name", "assistant_name", "voice", "memory", "hermes", "browser", "wake", "receptionist", "router", "briefing", "update", "personality"}
 
 
 @app.get("/api/settings")

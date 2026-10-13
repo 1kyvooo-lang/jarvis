@@ -9,7 +9,10 @@ import httpx
 from . import secrets_store
 
 BASE = "https://api.elevenlabs.io"
-DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # "George" — the voice used in ElevenLabs' own examples
+DEFAULT_VOICE = "onwK4e9ZLuTAKqWW03F9"   # "Daniel": refined, steady British male (ElevenLabs premade)
+FALLBACK_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # "George": warm British male
+# Calm, crisp, butler-like delivery: steady (higher stability), little exaggeration, a touch quicker.
+VOICE_SETTINGS = {"stability": 0.6, "similarity_boost": 0.8, "style": 0.1, "use_speaker_boost": True, "speed": 1.05}
 DEFAULT_TTS_MODEL = "eleven_flash_v2_5"   # ElevenLabs' low-latency model (~75 ms), 32 languages
 DEFAULT_STT_MODEL = "scribe_v2"
 _transport: httpx.AsyncBaseTransport | None = None  # tests inject a mock transport
@@ -108,11 +111,18 @@ async def transcribe(audio: bytes, filename: str, content_type: str, model_id: s
 async def speak(text: str, voice_id: str | None, model_id: str | None):
     """Stream MP3 bytes. Raises VoiceError before the first chunk if ElevenLabs refuses."""
     headers = _headers()
-    body = {"text": text[:5000], "model_id": model_id or DEFAULT_TTS_MODEL}
+    body = {"text": text[:5000], "model_id": model_id or DEFAULT_TTS_MODEL, "voice_settings": VOICE_SETTINGS}
     client = _client(timeout=httpx.Timeout(20, read=60))
-    req = client.build_request("POST", f"{BASE}/v1/text-to-speech/{voice_id or DEFAULT_VOICE}/stream",
-                               params={"output_format": "mp3_44100_128"}, headers=headers, json=body)
-    r = await client.send(req, stream=True)
+
+    async def attempt(vid: str):
+        req = client.build_request("POST", f"{BASE}/v1/text-to-speech/{vid}/stream",
+                                   params={"output_format": "mp3_44100_128"}, headers=headers, json=body)
+        return await client.send(req, stream=True)
+    r = await attempt(voice_id or DEFAULT_VOICE)
+    if r.status_code in (400, 404) and not voice_id:      # default voice not available on this account
+        await r.aread()
+        await r.aclose()
+        r = await attempt(FALLBACK_VOICE)
     if r.status_code != 200:
         await r.aread()
         await client.aclose()

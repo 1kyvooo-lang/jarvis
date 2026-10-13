@@ -88,6 +88,23 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
         </details>
       </Section>
 
+      <Section title="Personality">
+        <p className="text-sm text-dim mb-4">How JARVIS talks to you.</p>
+        <div className="grid md:grid-cols-2 gap-4">
+          <Field label="Manner">
+            <select className={inputCls} value={s.personality.style} onChange={e => setS({ ...s, personality: { ...s.personality, style: e.target.value as 'jarvis' | 'friendly' } })}>
+              <option value="jarvis">JARVIS (Iron Man): courteous British butler, calm, dry wit</option>
+              <option value="friendly">Friendly and casual</option>
+            </select>
+          </Field>
+          <Field label="He calls you" hint="e.g. sir, ma'am, boss, or your name">
+            <input className={inputCls} value={s.personality.address} onChange={e => setS({ ...s, personality: { ...s.personality, address: e.target.value } })} />
+          </Field>
+        </div>
+        <p className="text-[13px] text-faint mt-3">His default voice is “Daniel”, a refined British ElevenLabs voice. For an even closer match, create one in ElevenLabs → Voices → <b>Voice Design</b> (e.g. “calm, refined British male AI butler, crisp and dry”) and pick it under Voice below.</p>
+        <div className="mt-4"><Button tone="primary" onClick={() => save({ personality: s.personality }, 'Personality saved')}>Save</Button></div>
+      </Section>
+
       <Section title="Voice">
         {status?.voice.elevenlabs ? (
           <div className="flex flex-wrap items-center gap-3 mb-5">
@@ -201,7 +218,7 @@ export default function SettingsPage({ status, onChange }: { status: Status | nu
         <div className="grid md:grid-cols-2 gap-4">
           <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#3CE7FF] size-4" checked={s.wake.enabled} onChange={e => setS({ ...s, wake: { ...s.wake, enabled: e.target.checked } })} /> Listen for “Hey JARVIS”</label>
           <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#3CE7FF] size-4" checked={s.wake.open_at_login} onChange={e => setS({ ...s, wake: { ...s.wake, open_at_login: e.target.checked } })} /> Open the JARVIS window at login so he’s always listening</label>
-          <Field label="What he says when he wakes up"><input className={inputCls} value={s.wake.greeting} onChange={e => setS({ ...s, wake: { ...s.wake, greeting: e.target.value } })} /></Field>
+          <Field label="What he says when he wakes up"><input className={inputCls} placeholder="Leave empty for a varied JARVIS greeting (Yes, sir? …)" value={s.wake.greeting} onChange={e => setS({ ...s, wake: { ...s.wake, greeting: e.target.value } })} /></Field>
           <Field label={`Sensitivity (${Math.round((1 - s.wake.threshold) * 100)}%)`} hint="Higher hears you from further away but may wake by mistake.">
             <input type="range" min={0.2} max={0.85} step={0.05} value={1.05 - s.wake.threshold} onChange={e => setS({ ...s, wake: { ...s.wake, threshold: Math.round((1.05 - Number(e.target.value)) * 100) / 100 } })} className="w-full accent-[#3CE7FF]" />
           </Field>

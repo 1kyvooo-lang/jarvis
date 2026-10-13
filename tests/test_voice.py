@@ -56,7 +56,7 @@ def test_speak_streams_mp3_with_default_voice():
     assert run(go()).startswith(b"ID3")
     assert seen[-1].url.path == f"/v1/text-to-speech/{voice.DEFAULT_VOICE}/stream"
     import json
-    assert json.loads(seen[-1].content) == {"text": "Good evening.", "model_id": "eleven_flash_v2_5"}
+    assert json.loads(seen[-1].content) == {"text": "Good evening.", "model_id": "eleven_flash_v2_5", "voice_settings": voice.VOICE_SETTINGS}
 
 
 def test_voices_models_and_bad_key(monkeypatch):
