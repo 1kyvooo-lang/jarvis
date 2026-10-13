@@ -46,14 +46,26 @@ class Service:
 
     def spawn(self, argv: list[str], env: dict | None = None) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        self._log = open(LOG_DIR / f"{self.name}.out", "ab")
+        path = LOG_DIR / f"{self.name}.out"
+        try:   # keep helper logs from growing forever
+            if path.stat().st_size > 5_000_000:
+                path.replace(path.with_suffix(".out.1"))
+        except OSError:
+            pass
+        self._log = open(path, "ab")
         self.proc = subprocess.Popen(argv, cwd=str(ROOT), stdout=self._log, stderr=subprocess.STDOUT,
                                      env={**os.environ, **(env or {})}, start_new_session=True)
+        try:
+            PID_DIR.mkdir(parents=True, exist_ok=True)
+            (PID_DIR / f"{self.name}.pid").write_text(str(self.proc.pid))
+        except OSError:
+            pass
         self._last_start = time.time()
         self.state = "starting"
         log.info("started %s (pid %s)", self.name, self.proc.pid)
 
     def stop(self) -> None:
+        (PID_DIR / f"{self.name}.pid").unlink(missing_ok=True)
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:
@@ -70,6 +82,37 @@ class Service:
     def info(self) -> dict:
         return {"state": self.state, "detail": self.detail, "restarts": self.restarts,
                 "pid": self.proc.pid if self.proc and self.proc.poll() is None else None}
+
+
+PID_DIR = LOG_DIR.parent / "pids"
+
+
+def cleanup_orphans() -> list[str]:
+    """Stop helpers left running by a previous JARVIS (e.g. after an update or a crash), so every
+    start gets fresh ones running the current code. Only processes we started are touched."""
+    import psutil
+    killed = []
+    if not PID_DIR.exists():
+        return killed
+    marks = {"agent": "agent.server", "hermes": "gateway", "hermes-public": "gateway", "tunnel": "cloudflared"}
+    for f in PID_DIR.glob("*.pid"):
+        name = f.stem
+        try:
+            pr = psutil.Process(int(f.read_text().strip()))
+            cmd = " ".join(pr.cmdline())
+            if marks.get(name, "\0") in cmd:
+                pr.terminate()
+                try:
+                    pr.wait(6)
+                except psutil.TimeoutExpired:
+                    pr.kill()
+                killed.append(name)
+        except (ValueError, OSError, psutil.Error):
+            pass
+        f.unlink(missing_ok=True)
+    if killed:
+        log.info("stopped leftover helpers: %s", ", ".join(killed))
+    return killed
 
 
 agent = Service("agent", f"{AGENT_URL}/health")
@@ -151,6 +194,19 @@ def public_needed() -> bool:
     return bool((r.get("answer_others") and phone.configured()) or (r.get("inbox_assistant") and google.connected()))
 
 
+_force_ok: dict[str, bool] = {}
+
+
+def _supports_force(binary: str) -> bool:
+    if binary not in _force_ok:
+        try:
+            out = subprocess.run([binary, "gateway", "run", "--help"], capture_output=True, text=True, timeout=30)
+            _force_ok[binary] = "--force" in (out.stdout + out.stderr)
+        except Exception:
+            _force_ok[binary] = False
+    return _force_ok[binary]
+
+
 async def _ensure_public() -> None:
     from shared.settings import private_token
     if not public_needed():
@@ -182,7 +238,10 @@ async def _ensure_public() -> None:
     except Exception as e:
         log.warning("couldn't write receptionist config: %s", e)
         return
-    public_gateway.spawn([binary, "gateway", "run"], env={
+    argv = [binary, "gateway", "run"]
+    if _supports_force(binary):   # it has no chat platforms, so it can't double-bind anything
+        argv.append("--force")
+    public_gateway.spawn(argv, env={
         "HERMES_HOME": str(home), "API_SERVER_ENABLED": "true", "API_SERVER_KEY": key,
         "API_SERVER_HOST": "127.0.0.1", "API_SERVER_PORT": str(PUBLIC_HERMES_PORT)})
 
@@ -268,6 +327,10 @@ def start() -> None:
     global _task
     if os.getenv("JARVIS_NO_SUPERVISOR") == "1":
         return
+    try:
+        cleanup_orphans()
+    except Exception:
+        log.exception("orphan cleanup failed")
     _task = asyncio.create_task(supervise())
 
 
@@ -287,3 +350,18 @@ async def restart_gateway() -> None:
     gateway.restarts = 0
     gateway.state = "stopped"
     await _ensure_gateway()
+
+
+async def restart_all() -> None:
+    """Fresh helpers: stop the Mac agent, both Hermes gateways and the tunnel, then start again."""
+    for svc in (agent, gateway, public_gateway, tunnel):
+        svc.stop()
+        svc.restarts = 0
+        svc.state = "stopped"
+    cleanup_orphans()
+    phone.STATE.update(public_url=None, webhooks=None, configured_for=None)
+    for fn in (_ensure_agent, _ensure_gateway, _ensure_phone, _ensure_public):
+        try:
+            await fn()
+        except Exception:
+            log.exception("restart step failed")

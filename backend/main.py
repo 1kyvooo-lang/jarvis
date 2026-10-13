@@ -181,6 +181,13 @@ async def hermes_restart():
     return {"ok": True, "hermes": services.gateway.info()}
 
 
+@app.post("/api/services/restart")
+async def services_restart():
+    db.log_activity("Restarted JARVIS's helpers (Hermes, Mac agent, phone)", "info", tool="system", source="user")
+    await services.restart_all()
+    return {"ok": True}
+
+
 @app.post("/api/agent/restart")
 async def agent_restart():
     services.agent.stop()
@@ -352,7 +359,7 @@ async def shutdown():
     async def later():
         await asyncio.sleep(0.5)
         services.stop_all()
-        os.kill(os.getpid(), signal.SIGTERM)
+        os._exit(0)   # a clean exit: launchd only restarts JARVIS after a crash
     asyncio.create_task(later())
     return {"ok": True}
 
@@ -888,9 +895,14 @@ if DIST.exists():
 
 def main():
     fh = RotatingFileHandler(Path(LOG_DIR) / "backend.log", maxBytes=2_000_000, backupCount=3)
-    logging.basicConfig(level=logging.INFO, handlers=[fh, logging.StreamHandler()],
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    uvicorn.run("backend.main:app", host=BACKEND_HOST, port=BACKEND_PORT, log_level="info")
+    handlers: list[logging.Handler] = [fh]
+    if sys.stderr.isatty():          # under launchd stdout goes to app.out, which isn't rotated
+        handlers.append(logging.StreamHandler())
+    logging.basicConfig(level=logging.INFO, handlers=handlers, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    for noisy in ("httpx", "httpcore", "uvicorn.access"):   # health checks every few seconds
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+    uvicorn.run("backend.main:app", host=BACKEND_HOST, port=BACKEND_PORT, log_level="warning",
+                log_config=None)
 
 
 if __name__ == "__main__":

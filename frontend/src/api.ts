@@ -73,6 +73,7 @@ export const api = {
   deleteElevenLabsKey: () => req('/api/setup/elevenlabs', { method: 'DELETE' }),
   hermesSetup: () => req<{ ok: boolean }>('/api/hermes/setup', { method: 'POST' }),
   hermesRestart: () => req('/api/hermes/restart', { method: 'POST' }),
+  restartServices: () => req('/api/services/restart', { method: 'POST' }),
   agentRestart: () => req('/api/agent/restart', { method: 'POST' }),
   shutdown: () => req('/api/shutdown', { method: 'POST' }),
   phone: () => req<{ settings: PhoneSettings; status: PhoneStatus; cloudflared: boolean }>('/api/phone'),

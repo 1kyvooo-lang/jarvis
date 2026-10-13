@@ -107,6 +107,7 @@ export default function CommandCenter({ go }: { go: (p: PageId) => void }) {
     if (j.coreState === 'listening' && j.call === 'listening') gsap.fromTo(el.querySelector('.core-title'), { scale: 1.08 }, { scale: 1, duration: 0.8, ease: 'elastic.out(1, 0.5)' })
   }, [j.coreState, j.call])
 
+  const [fixing, setFixing] = useState(false)
   const healthy = !!s && s.brain.ready && s.agent.online && !s.emergency_stop
   const degraded = !!s && !healthy
   const inCall = !!j.call && j.call !== 'ended'
@@ -150,6 +151,13 @@ export default function CommandCenter({ go }: { go: (p: PageId) => void }) {
             <Row icon="phone" name="Phone line" value={s?.phone.configured ? (s.phone.public_url ? 'Online' : 'Connecting') : 'Not set up'} tone={s?.phone.configured ? 'ok' : 'off'} />
             <Row icon="settings" name="System" value={healthy ? 'Optimal' : 'Needs attention'} tone={healthy ? 'ok' : 'warn'} />
           </ul>
+          {degraded && !s?.emergency_stop && (
+            <button disabled={fixing} onClick={async () => { setFixing(true); try { await api.restartServices() } finally { setTimeout(() => setFixing(false), 8000) } }}
+              className="hud-row w-full mt-3 px-3 py-2 text-[13px] text-amber hover:text-white disabled:opacity-60">
+              {fixing ? 'Restarting Hermes and the Mac agent…' : '↻ Restart Hermes & Mac agent'}
+            </button>
+          )}
+          {s && !s.brain.ready && s.brain.detail && <p className="text-[12px] text-faint mt-2 whitespace-pre-wrap line-clamp-4" title={s.brain.detail}>Hermes: {s.brain.detail}</p>}
         </Panel>
 
         <section ref={coreBox} className="col-span-6 max-xl:col-span-12 order-first xl:order-none hud relative min-h-[360px] overflow-hidden">
